@@ -1,0 +1,64 @@
+// Only used by the explicit localhost preview; never enabled on an extension origin.
+import { mergeLibrary, storeAsset, setFavorite, setHidden, getImages, getAsset, putValue, trimCache, assetMetadata, storageUsage } from './db.js';
+import { cachePeriod, cacheProgress } from './cache-policy.js';
+const account = 'preview-account';
+let held = null;
+export function fixtureDimensions(index) {
+  const [width, height] = [[1200, 900], [900, 1400], [900, 900], [1600, 900]][index % 4];
+  return { width, height };
+}
+export function fixtureSVG(index) {
+  const { width, height } = fixtureDimensions(index);
+  const colors = [['#c4d5ce', '#345d52'], ['#eed9bb', '#d08c50'], ['#bcc9dd', '#53647c'], ['#d5c9d8', '#8a6685'], ['#d6dac4', '#818b58'], ['#dbbdb4', '#9e645b']];
+  const [background, foreground] = colors[index % colors.length];
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 1200 900" preserveAspectRatio="none"><rect width="1200" height="900" fill="${background}"/><circle cx="850" cy="240" r="145" fill="${foreground}" opacity=".22"/><path d="M0 700 Q280 350 570 620T1200 560V900H0Z" fill="${foreground}" opacity=".45"/><path d="M0 800Q380 570 650 740T1200 690V900H0Z" fill="${foreground}" opacity=".65"/><text x="65" y="80" font-family="sans-serif" font-size="24" fill="${foreground}">TEST IMAGE ${String(index + 1).padStart(2, '0')}</text></svg>`;
+}
+export async function seedPreview() {
+  if ((await getImages(account)).length) return;
+  const titles = ['山间的清晨', '一束暖光', '海岸与远山', '傍晚的花园', '夏日的森林', '窗边的日落', '远处的山脉', '安静的午后', '天空的颜色', '柔和的光影', '长长的夏天', '雨后的街道'];
+  await mergeLibrary(account, titles.map((title, index) => ({ id: `fixture-${index}`, title, createdAt: Date.UTC(2026, 9, 7) - index * 86400000, conversationId: 'preview-conversation', ...fixtureDimensions(index) })), true);
+  for (let index = 0; index < titles.length; index++) {
+    const blob = new Blob([fixtureSVG(index)], { type: 'image/svg+xml' });
+    await storeAsset(account, `fixture-${index}`, 'original', blob);
+    await storeAsset(account, `fixture-${index}`, 'thumbnail', blob);
+  }
+  await setFavorite(account, 'fixture-0', true); await setFavorite(account, 'fixture-3', true); await setFavorite(account, 'fixture-6', true);
+  await putValue('accounts', { key: account, name: '预览 · 测试图片' });
+}
+export async function previewRPC(type, args) {
+  const period = cachePeriod(localStorage.getItem('previewCachePeriod'));
+  if (type === 'connect') return { id: account, name: '预览 · 测试图片', online: true };
+  if (type === 'sync' || type === 'retry-favorites') return {};
+  if (type === 'view-hold') {
+    held = args.id;
+    await trimCache(new Set(['original', 'thumbnail'].map(kind => `${account}:${held}:${kind}`)), period);
+    return {};
+  }
+  if (type === 'settings') return { cachePeriod: period };
+  if (type === 'set-settings') {
+    localStorage.setItem('previewCachePeriod', cachePeriod(args.cachePeriod));
+    await trimCache(new Set(['original', 'thumbnail'].map(kind => `${account}:${held}:${kind}`)), args.cachePeriod);
+    return {};
+  }
+  if (type === 'retry-cache') return {};
+  if (type === 'cache-status') return { cachePeriod: period, ...cacheProgress(await getImages(account), await assetMetadata(account), period), ...await storageUsage(account), phase: 'idle', failed: 0, ...JSON.parse(localStorage.getItem('previewCacheState') || '{}') };
+  if (type === 'favorite') {
+    const image = await setFavorite(account, args.id, args.favorite);
+    window.dispatchEvent(new Event('preview-library-event')); return image;
+  }
+  if (type === 'hidden') {
+    const result = await setHidden(account, args.id, args.hidden);
+    window.dispatchEvent(new CustomEvent('preview-library-event', { detail: { hiddenId: args.id } })); return result;
+  }
+  if (type === 'prompt') return { text: `生成测试图片 ${args.id}，保留完整的用户原文。` };
+  if (type === 'asset') {
+    let blob = await getAsset(account, args.id, args.kind);
+    if (!blob && /^fixture-\d+$/.test(args.id)) {
+      blob = new Blob([fixtureSVG(Number(args.id.split('-')[1]))], { type: 'image/svg+xml' });
+      await storeAsset(account, args.id, args.kind, blob);
+    }
+    if (!blob) throw new Error('测试图片不可用');
+    return new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve({ dataURL: reader.result }); reader.readAsDataURL(blob); });
+  }
+  throw new Error('不支持的预览操作');
+}

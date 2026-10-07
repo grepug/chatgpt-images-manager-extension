@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>图片库 · ChatGPT Images Manager</title>
+  <link rel="stylesheet" href="library.css">
+  <link rel="stylesheet" href="immersive.css">
+  <link rel="stylesheet" href="grid.css">
+  <script src="library.js" type="module"></script>
+</head>
+<body class="grid-layout">
+  <svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="icon-images" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m5 16 5-5 4 4 3-3 3 3"/><circle cx="15.5" cy="8.5" r="1"/></symbol>
+    <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="icon-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.3.9-4.55 4.43L17.6 20 12 17.1 6.4 20l1.05-5.97L2.9 9.6l6.3-.9Z"/></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5.4 8a7 7 0 0 1 11.5-3L20 8M4 16l3.1 3A7 7 0 0 0 18.6 16"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></symbol>
+    <symbol id="icon-chat" viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h7"/></symbol>
+    <symbol id="icon-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
+    <symbol id="icon-right" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></symbol>
+    <symbol id="icon-fit" viewBox="0 0 24 24"><path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="icon-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="icon-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3h.01"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><path d="m10 3 4 0 1 3 3-1 2 3-2 2 1 3-3 2-1 3h-4l-1-3-3 1-2-3 2-2-1-3 3-2Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 3h7v7m0-7-11 11M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></symbol>
+    <symbol id="icon-hide" viewBox="0 0 24 24"><path d="m3 3 18 18M10 5c5-1 9 3 12 7a22 22 0 0 1-4 4M6 6a22 22 0 0 0-4 6c5 7 11 9 17 5"/><path d="M9 9a4 4 0 0 0 6 6"/></symbol>
+    <symbol id="icon-locate" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h5v5M13 8l-5 5M16 16h.01"/></symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 5V3H3v13h2"/></symbol>
+  </defs></svg>
+  <main id="grid-view" class="grid-view" aria-label="grid 图库">
+    <header class="grid-toolbar">
+      <h1 class="grid-brand">图片库</h1>
+      <div class="grid-filters" aria-label="图片范围">
+        <button id="grid-filter-all" class="active" aria-pressed="true">全部图片 <span id="grid-all-count">0</span></button>
+        <button id="grid-filter-favorites" aria-pressed="false">收藏 <span id="grid-favorite-count">0</span></button>
+        <button id="grid-filter-hidden" aria-pressed="false">隐藏 <span id="grid-hidden-count">0</span></button>
+      </div>
+      <div class="grid-tools">
+        <div class="grid-sizes" aria-label="图片大小"><button id="grid-size-small" aria-pressed="false">小</button><button id="grid-size-medium" class="active" aria-pressed="true">中</button><button id="grid-size-large" aria-pressed="false">大</button></div>
+        <button id="grid-open-viewer" class="icon-button" aria-label="大图视图" title="大图视图"><svg class="icon"><use href="#icon-images"/></svg></button>
+        <button id="grid-refresh" class="icon-button" aria-label="刷新图片库" title="刷新图片库"><svg class="icon"><use href="#icon-refresh"/></svg></button>
+        <button id="grid-settings" class="icon-button" aria-label="缓存设置" title="缓存设置"><svg class="icon"><use href="#icon-settings"/></svg></button>
+        <button id="grid-help" class="icon-button" aria-label="快捷键说明" title="快捷键说明"><svg class="icon"><use href="#icon-help"/></svg></button>
+      </div>
+    </header>
+    <div id="grid-scroll" class="grid-scroll" tabindex="0" aria-label="grid 图库滚动区域"><div id="grid-canvas" class="grid-canvas" role="list" aria-label="图片"></div><div id="grid-empty" class="grid-empty"><p id="grid-empty-text">正在加载你的图片…</p><button id="grid-connect" class="primary-button" hidden>打开 ChatGPT 图片库</button></div></div>
+    <footer class="grid-footer"><span id="grid-account">正在连接…</span><progress id="grid-cache-bar" class="cache-bar" max="100" aria-label="缓存进度"></progress><span id="grid-cache-progress" role="status">正在检查缓存…</span><span id="grid-storage">缓存 0 KB · 收藏 0 KB</span></footer>
+  </main>
+  <aside class="sidebar" aria-label="图片导航">
+    <header class="sidebar-header">
+      <div class="brand"><svg class="icon brand-icon"><use href="#icon-images"/></svg><div><h1>图片库</h1><p>ChatGPT</p></div></div>
+      <button id="refresh" class="icon-button" aria-label="刷新图片库" title="刷新图片库"><svg class="icon"><use href="#icon-refresh"/></svg></button>
+    </header>
+    <div class="filters" aria-label="图片范围">
+      <button id="filter-all" class="filter active" aria-pressed="true">全部图片 <span id="all-count">0</span></button>
+      <button id="filter-favorites" class="filter" aria-pressed="false"><svg class="icon small"><use href="#icon-star"/></svg>收藏 <span id="favorite-count">0</span></button>
+      <button id="filter-hidden" class="filter" aria-pressed="false">隐藏 <span id="hidden-count">0</span></button>
+    </div>
+    <div class="list-heading"><span id="list-label">最近的图片</span><span id="load-progress" aria-live="polite"></span></div>
+    <div id="thumbnails" class="thumbnails" tabindex="0" aria-label="图片缩略图滚动区域"><div id="thumbnail-canvas" class="thumbnail-canvas" role="list" aria-label="图片缩略图"></div><p id="sidebar-empty" class="list-empty" hidden></p></div>
+    <footer class="sidebar-footer">
+      <div class="account-row"><span id="account-avatar" class="avatar">C</span><div><strong id="account-name">ChatGPT</strong><span id="connection-status">正在连接…</span></div><span id="connection-dot" class="connection-dot"></span></div>
+      <div id="cache-progress" class="cache-progress" aria-live="polite">正在检查缓存…</div>
+      <progress id="sidebar-cache-bar" class="cache-bar" max="100" aria-label="缓存进度"></progress>
+      <div class="storage-row"><span id="storage-usage">缓存 0 KB · 收藏 0 KB</span><div class="footer-buttons"><button id="settings" class="icon-button tiny" aria-label="缓存设置" title="缓存设置"><svg class="icon"><use href="#icon-settings"/></svg></button><button id="help" class="icon-button tiny" aria-label="快捷键说明" title="快捷键说明"><svg class="icon"><use href="#icon-help"/></svg></button></div></div>
+    </footer>
+  </aside>
+  <div id="status" class="status" role="status" hidden></div>
+  <main class="viewer">
+    <header class="viewer-header">
+      <button id="return-grid" class="icon-button" aria-label="返回 grid 图库" title="返回 grid 图库（Esc）"><svg class="icon"><use href="#icon-grid"/></svg></button>
+      <button id="toggle-sidebar" class="icon-button" aria-label="收起缩略图栏" aria-expanded="true" title="收起缩略图栏"><svg class="icon"><use href="#icon-images"/></svg></button>
+      <div class="image-info"><h2 id="image-title">你的图片，随时浏览。</h2><p id="image-meta">快捷切换 · 本地缓存 · 收藏</p></div>
+      <div class="viewer-actions">
+        <button id="favorite" class="icon-button" aria-label="收藏图片" title="收藏图片（F）" disabled><svg class="icon"><use href="#icon-star"/></svg></button>
+        <button id="hide-image" class="icon-button" aria-label="隐藏图片" title="隐藏图片" disabled><svg class="icon"><use href="#icon-hide"/></svg></button>
+        <button id="locate-all" class="icon-button" aria-label="在全部图片中定位" title="在全部图片中定位" hidden><svg class="icon"><use href="#icon-locate"/></svg></button>
+        <button id="copy-prompt" class="icon-button" aria-label="复制 prompt" title="复制 prompt" disabled><svg class="icon"><use href="#icon-copy"/></svg></button>
+        <button id="conversation" class="icon-button" aria-label="打开原聊天" title="打开原聊天" disabled><svg class="icon"><use href="#icon-chat"/></svg></button>
+        <button id="download" class="icon-button" aria-label="下载图片" title="下载图片" disabled><svg class="icon"><use href="#icon-download"/></svg></button>
+      </div>
+    </header>
+    <div id="viewport" class="viewport" tabindex="0" aria-label="图片查看器">
+      <img id="main-image" class="main-image" alt="" draggable="false" hidden>
+      <div id="empty-state" class="empty-state"><div class="empty-icon"><svg class="icon"><use href="#icon-images"/></svg></div><h3 id="empty-title">正在连接图片库</h3><p id="empty-text">你的图片与收藏保存在这个浏览器中。</p><button id="connect" class="primary-button"><svg class="icon small"><use href="#icon-external"/></svg>打开 ChatGPT 图片库</button></div>
+      <div id="image-error" class="image-error" hidden><p id="image-error-text"></p><button id="retry" class="secondary-button">重试加载</button></div>
+      <div id="image-loading" class="image-loading" hidden><span class="spinner"></span><span>加载图片…</span></div>
+      <button id="previous" class="navigation previous" aria-label="上一张图片" title="上一张图片（←）" disabled><svg class="icon"><use href="#icon-left"/></svg></button>
+      <button id="next" class="navigation next" aria-label="下一张图片" title="下一张图片（→）" disabled><svg class="icon"><use href="#icon-right"/></svg></button>
+    </div>
+    <footer class="viewer-footer">
+      <span id="image-position" class="image-position"></span>
+      <div id="zoom-controls" class="zoom-controls">
+        <button id="zoom-out" class="icon-button" aria-label="缩小图片" title="缩小图片" disabled><svg class="icon small"><use href="#icon-minus"/></svg></button>
+        <button id="actual-size" class="zoom-value" aria-label="原始尺寸" title="原始尺寸（1）" disabled>100%</button>
+        <button id="zoom-in" class="icon-button" aria-label="放大图片" title="放大图片" disabled><svg class="icon small"><use href="#icon-plus"/></svg></button>
+        <span class="control-divider"></span>
+        <button id="fit" class="icon-button" aria-label="适应窗口" title="适应窗口（0）" disabled><svg class="icon small"><use href="#icon-fit"/></svg></button>
+      </div>
+      <span id="favorite-status" class="favorite-status" aria-live="polite"></span>
+    </footer>
+  </main>
+  <dialog id="help-dialog"><form method="dialog"><div class="dialog-title"><h2>快捷键与手势</h2><button class="icon-button" aria-label="关闭快捷键说明">×</button></div><dl class="shortcut-list"><div><dt>上一张 / 下一张</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div><div><dt>收藏 / 取消收藏</dt><dd><kbd>F</kbd></dd></div><div><dt>适应窗口</dt><dd><kbd>0</kbd></dd></div><div><dt>原始尺寸</dt><dd><kbd>1</kbd></dd></div><div><dt>缩放图片</dt><dd>触控板捏合</dd></div><div><dt>平移图片</dt><dd>双指滚动 / 拖拽</dd></div></dl><p class="dialog-note">自动缓存所选时间范围内的原图和缩略图。收藏独立保留，不受时间范围清理影响。</p></form></dialog>
+  <dialog id="settings-dialog"><form method="dialog"><div class="dialog-title"><h2>缓存设置</h2><button class="icon-button" aria-label="关闭缓存设置">×</button></div></form>
+    <label class="setting-row" for="cache-period"><span>自动缓存范围</span><select id="cache-period"><option value="1week">1 周</option><option value="1month">1 个月</option><option value="6months" selected>半年</option></select></label>
+    <p class="dialog-note">按图片创建时间自动缓存原图和缩略图，没有容量上限。超出范围的普通缓存自动清理，收藏独立保留。图片库仍显示全部历史图片。</p>
+    <div class="cache-summary"><p id="settings-progress">正在检查缓存…</p><p id="settings-storage">缓存 0 KB · 收藏 0 KB</p><p id="settings-error" role="status" hidden></p></div>
+    <button id="retry-cache" class="secondary-button">重试未完成的缓存</button>
+    <p class="dialog-note">关闭图片库后继续尝试后台缓存；Safari 暂停后台或退出时会中断，下次运行自动恢复进度。</p>
+  </dialog>
+  <dialog id="prompt-dialog"><form method="dialog"><div class="dialog-title"><h2>图片的 prompt</h2><button class="icon-button" aria-label="关闭 prompt">×</button></div><p>浏览器未允许自动复制，可选中下面的文字手动复制。</p><textarea id="prompt-text" readonly aria-label="图片的 prompt"></textarea></form></dialog>
+</body>
+</html>
