@@ -16,6 +16,8 @@ let layout = 'grid', gridSize = 'medium';
 let hiddenIds = new Set(), filterStates = {}, listHidden;
 const hiddenPending = new Set(), promptCache = new Map();
 let promptJob = null;
+const editDrafts = new Map();
+let editJob = null;
 let loadSequence = 0, refreshSequence = 0, reloadSequence = 0, restoring = false, syncing = false;
 let currentURL = null, saveTimer, gestureStart = null, dragStart = null;
 const queue = []; let queueRunning = 0;
@@ -136,6 +138,8 @@ function updateControls() {
   $('hide-image').title = $('hide-image').ariaLabel = filter === 'hidden' ? '取消隐藏' : '隐藏图片';
   $('locate-all').hidden = filter !== 'favorites' || !image || image.deleted;
   $('copy-prompt').disabled = !image?.conversationId || Boolean(promptJob);
+  $('describe-edits').hidden = !image?.conversationId || !image?.fileId || Boolean(image.deleted);
+  $('submit-edit').disabled = !image || !online || Boolean(editJob) || !$('edit-prompt').value.trim();
   $('favorite').classList.toggle('favorited', Boolean(image?.favorite));
   $('favorite').setAttribute('aria-label', image?.favorite ? '取消收藏' : '收藏图片');
   $('favorite').setAttribute('aria-pressed', String(Boolean(image?.favorite)));
@@ -177,6 +181,7 @@ async function select(id, restoredTransform = null) {
   if (!image || hiddenIds.has(id) !== (filter === 'hidden')) return;
   const sequence = ++loadSequence, targetAccount = account;
   selectedId = id; selectedImage = { ...image }; width = 0; height = 0;
+  $('edit-prompt').value = editDrafts.get(`${account}:${id}`) || ''; resizeEditPrompt();
   mainImage.hidden = true; $('empty-state').hidden = true; $('image-error').hidden = true; $('image-loading').hidden = false;
   viewport.classList.remove('has-image');
   sidebarGallery.setImages(list(), id);
@@ -340,7 +345,8 @@ async function reloadImages() {
 async function restoreAccount(identity) {
   loadSequence++; reloadSequence++; clearTimeout(saveTimer); restoring = true;
   if (account) await putValue('views', snapshotView());
-  account = identity.id; images = []; hiddenIds = new Set(); filterStates = {}; promptCache.clear();
+  account = identity.id; images = []; hiddenIds = new Set(); filterStates = {}; promptCache.clear(); editDrafts.clear();
+  $('edit-prompt').value = ''; resizeEditPrompt();
   selectedId = null; selectedImage = null; width = 0; height = 0;
   clearImageURLs(); mainImage.hidden = true; $('image-error').hidden = true; $('image-loading').hidden = true;
   viewport.classList.remove('has-image'); $('empty-state').hidden = false;
@@ -509,6 +515,36 @@ function revealControls() {
   document.body.classList.remove('controls-idle'); clearTimeout(chromeTimer);
   chromeTimer = setTimeout(() => document.body.classList.add('controls-idle'), 2200);
 }
+function resizeEditPrompt() {
+  const input = $('edit-prompt'); input.style.height = 'auto'; input.style.height = `${Math.min(88, Math.max(24, input.scrollHeight))}px`;
+}
+$('edit-prompt').addEventListener('input', () => {
+  const key = `${account}:${selectedId}`;
+  if ($('edit-prompt').value) editDrafts.set(key, $('edit-prompt').value); else editDrafts.delete(key);
+  resizeEditPrompt(); updateControls(); revealControls();
+});
+$('edit-prompt').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('describe-edits').requestSubmit(); }
+});
+$('describe-edits').addEventListener('submit', async event => {
+  event.preventDefault();
+  const image = current(), prompt = $('edit-prompt').value.trim(), targetAccount = account;
+  if (!image?.fileId || !image.conversationId || image.deleted || !online || !prompt || editJob) return;
+  const job = { id: crypto.randomUUID(), imageId: image.id }; editJob = job; updateControls(); revealControls();
+  $('submit-edit').classList.add('submitting'); status('正在打开 Describe edits…');
+  try {
+    await rpc('describe-edit', { account: targetAccount, id: image.id, prompt, jobId: job.id });
+    if (account === targetAccount) {
+      const key = `${account}:${image.id}`;
+      if ((editDrafts.get(key) || '').trim() === prompt) {
+        editDrafts.delete(key);
+        if (selectedId === image.id) { $('edit-prompt').value = ''; resizeEditPrompt(); }
+      }
+      status('Describe edits 已在新窗口提交');
+    }
+  } catch (error) { if (account === targetAccount) status(error.message); }
+  finally { if (editJob === job) editJob = null; $('submit-edit').classList.remove('submitting'); updateControls(); }
+});
 document.addEventListener('pointermove', revealControls, { passive: true });
 document.addEventListener('keydown', revealControls); revealControls();
 window.addEventListener('pagehide', () => saveView(true));

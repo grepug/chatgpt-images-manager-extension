@@ -2,9 +2,11 @@ import { getValue, putValue, updateValue, mergeLibrary, getImages, getAsset, sto
 import { cachePeriod, cacheProgress } from './cache-policy.js';
 import { CacheRunner } from './cache-runner.js';
 import { THUMBNAIL_VERSION } from './thumbnail-cache.js';
+import { openEditWindow } from './edit-window.js';
 const extension = globalThis.browser || globalThis.chrome;
 let source = null, creatingSource = null, worker = null;
 const assetTasks = new Map(), held = new Map();
+const editJobs = new Map();
 const ALARM = 'automatic-image-cache';
 
 function assertLibrarySender(sender) {
@@ -208,6 +210,20 @@ async function handle(message, sender) {
     const image = (await getImages(message.account)).find(image => image.id === message.id);
     if (!image?.conversationId) throw new Error('该图片没有原聊天信息。');
     return sourceRequest(message.account, 'prompt', { image });
+  }
+  if (message.type === 'describe-edit') {
+    if (typeof message.prompt !== 'string' || !message.prompt.trim() || !message.jobId) throw new Error('请输入 Describe edits。');
+    const key = `${message.account}:${message.jobId}`;
+    if (editJobs.has(key)) return editJobs.get(key);
+    const task = (async () => {
+      const image = (await getImages(message.account)).find(image => image.id === message.id);
+      if (!image?.conversationId || !image?.fileId || image.deleted) throw new Error('原图已不可用，无法提交 Describe edits。');
+      return openEditWindow(extension, { account: message.account, image: { fileId: image.fileId, conversationId: image.conversationId, messageId: image.messageId },
+        prompt: message.prompt, jobId: message.jobId, dryRun: message.dryRun === true });
+    })();
+    editJobs.set(key, task);
+    if (editJobs.size > 100) editJobs.delete(editJobs.keys().next().value);
+    return task;
   }
   if (message.type === 'view-hold') { held.clear(); if (message.id) held.set(message.account, message.id); await clean((await settings()).cachePeriod); return {}; }
   if (message.type === 'cache-status') return progress(message.account);

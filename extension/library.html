@@ -29,6 +29,7 @@
     <symbol id="icon-hide" viewBox="0 0 24 24"><path d="m3 3 18 18M10 5c5-1 9 3 12 7a22 22 0 0 1-4 4M6 6a22 22 0 0 0-4 6c5 7 11 9 17 5"/><path d="M9 9a4 4 0 0 0 6 6"/></symbol>
     <symbol id="icon-locate" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 8h5v5M13 8l-5 5M16 16h.01"/></symbol>
     <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 5V3H3v13h2"/></symbol>
+    <symbol id="icon-send" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
   </defs></svg>
   <main id="grid-view" class="grid-view" aria-label="grid 图库">
     <header class="grid-toolbar">
@@ -73,7 +74,14 @@
     <header class="viewer-header">
       <button id="return-grid" class="icon-button" aria-label="返回 grid 图库" title="返回 grid 图库（Esc）"><svg class="icon"><use href="#icon-grid"/></svg></button>
       <button id="toggle-sidebar" class="icon-button" aria-label="收起缩略图栏" aria-expanded="true" title="收起缩略图栏"><svg class="icon"><use href="#icon-images"/></svg></button>
-      <div class="image-info"><h2 id="image-title">你的图片，随时浏览。</h2><p id="image-meta">快捷切换 · 本地缓存 · 收藏</p></div>
+      <div class="image-info"><h2 id="image-title">你的图片，随时浏览。</h2><p id="image-meta">快捷切换 · 本地缓存 · 收藏</p><span id="favorite-status" class="favorite-status" aria-live="polite"></span></div>
+      <div id="zoom-controls" class="zoom-controls">
+        <button id="zoom-out" class="icon-button" aria-label="缩小图片" title="缩小图片" disabled><svg class="icon small"><use href="#icon-minus"/></svg></button>
+        <button id="actual-size" class="zoom-value" aria-label="原始尺寸" title="原始尺寸（1）" disabled>100%</button>
+        <button id="zoom-in" class="icon-button" aria-label="放大图片" title="放大图片" disabled><svg class="icon small"><use href="#icon-plus"/></svg></button>
+        <span class="control-divider"></span>
+        <button id="fit" class="icon-button" aria-label="适应窗口" title="适应窗口（0）" disabled><svg class="icon small"><use href="#icon-fit"/></svg></button>
+      </div>
       <div class="viewer-actions">
         <button id="favorite" class="icon-button" aria-label="收藏图片" title="收藏图片（F）" disabled><svg class="icon"><use href="#icon-star"/></svg></button>
         <button id="hide-image" class="icon-button" aria-label="隐藏图片" title="隐藏图片" disabled><svg class="icon"><use href="#icon-hide"/></svg></button>
@@ -93,15 +101,11 @@
     </div>
     <footer class="viewer-footer">
       <span id="image-position" class="image-position"></span>
-      <div id="zoom-controls" class="zoom-controls">
-        <button id="zoom-out" class="icon-button" aria-label="缩小图片" title="缩小图片" disabled><svg class="icon small"><use href="#icon-minus"/></svg></button>
-        <button id="actual-size" class="zoom-value" aria-label="原始尺寸" title="原始尺寸（1）" disabled>100%</button>
-        <button id="zoom-in" class="icon-button" aria-label="放大图片" title="放大图片" disabled><svg class="icon small"><use href="#icon-plus"/></svg></button>
-        <span class="control-divider"></span>
-        <button id="fit" class="icon-button" aria-label="适应窗口" title="适应窗口（0）" disabled><svg class="icon small"><use href="#icon-fit"/></svg></button>
-      </div>
-      <span id="favorite-status" class="favorite-status" aria-live="polite"></span>
     </footer>
+    <form id="describe-edits" class="edit-composer" aria-label="Describe edits" hidden>
+      <textarea id="edit-prompt" rows="1" placeholder="Describe edits" aria-label="Describe edits" spellcheck="false"></textarea>
+      <button id="submit-edit" class="icon-button" type="submit" aria-label="提交 Describe edits，在新窗口中打开" title="提交 Describe edits，在新窗口中打开" disabled><svg class="icon"><use href="#icon-send"/></svg></button>
+    </form>
   </main>
   <dialog id="help-dialog"><form method="dialog"><div class="dialog-title"><h2>快捷键与手势</h2><button class="icon-button" aria-label="关闭快捷键说明">×</button></div><dl class="shortcut-list"><div><dt>上一张 / 下一张</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div><div><dt>收藏 / 取消收藏</dt><dd><kbd>F</kbd></dd></div><div><dt>适应窗口</dt><dd><kbd>0</kbd></dd></div><div><dt>原始尺寸</dt><dd><kbd>1</kbd></dd></div><div><dt>缩放图片</dt><dd>触控板捏合</dd></div><div><dt>平移图片</dt><dd>双指滚动 / 拖拽</dd></div></dl><p class="dialog-note">自动缓存所选时间范围内的原图和缩略图。收藏独立保留，不受时间范围清理影响。</p></form></dialog>
   <dialog id="settings-dialog"><form method="dialog"><div class="dialog-title"><h2>缓存设置</h2><button class="icon-button" aria-label="关闭缓存设置">×</button></div></form>

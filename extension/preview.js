@@ -51,6 +51,10 @@ export async function previewRPC(type, args) {
     window.dispatchEvent(new CustomEvent('preview-library-event', { detail: { hiddenId: args.id } })); return result;
   }
   if (type === 'prompt') return { text: `生成测试图片 ${args.id}，保留完整的用户原文。` };
+  if (type === 'describe-edit') {
+    window.dispatchEvent(new CustomEvent('preview-edit', { detail: args }));
+    return { submitted: true };
+  }
   if (type === 'asset') {
     let blob = await getAsset(account, args.id, args.kind);
     if (!blob && /^fixture-\d+$/.test(args.id)) {
