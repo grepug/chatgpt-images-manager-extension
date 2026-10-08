@@ -1,0 +1,56 @@
+/* Image pixels are clipped to their own viewport. No controls float above it. */
+.viewer{position:relative;min-height:0;overflow:hidden;isolation:isolate;background:var(--canvas);flex-direction:column}
+.viewer .viewport{position:relative;flex:1;min-width:0;min-height:0;height:auto;overflow:hidden;contain:paint}
+.viewer .empty-state{padding:20px}.viewer .main-image{box-shadow:none}
+.viewer-controls{display:flex;flex-direction:column;flex-shrink:0;min-width:0;background:var(--canvas);border-top:1px solid var(--border)}
+.controls-rail{height:var(--rail-height,32px);min-height:32px;display:flex;align-items:center;justify-content:center;gap:2px;padding:1px;flex-shrink:0;overflow:hidden}
+.primary-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px;max-width:100%;min-width:0;transition:opacity .15s}
+.viewer-controls .icon-button,.viewer-controls #notice-toggle{width:28px;height:28px;min-width:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:0;box-shadow:none;background:transparent;border-radius:6px}
+.viewer-controls .icon,.viewer-controls .icon.small{width:16px;height:16px}
+.viewer-controls .icon-button:hover,.viewer-controls #notice-toggle:hover{background:var(--hover)}
+.viewer-controls .favorited .icon{fill:currentColor}
+.viewer-controls [aria-expanded=true]{background:var(--hover)}
+.controls-idle .primary-controls:not(:focus-within):not(:hover){opacity:0;pointer-events:none}
+.controls-idle .primary-controls:not(:focus-within):not(:hover)>*{pointer-events:none}
+.viewer[data-dock=side]{flex-direction:row}
+.viewer[data-dock=side] .viewer-controls{flex-direction:row;width:calc(32px + var(--panel-width,0px));border-top:0;border-left:1px solid var(--border)}
+.viewer[data-dock=side] .controls-rail{width:32px;height:100%;flex-direction:column}
+.viewer[data-dock=side] .primary-controls{flex-direction:column;flex-wrap:nowrap}
+.viewer-panel{min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;height:var(--panel-height,0px);border-bottom:1px solid var(--border);background:var(--bg)}
+.viewer[data-dock=side] .viewer-panel{width:var(--panel-width);height:100%;border-bottom:0;border-right:1px solid var(--border);display:flex;align-items:flex-start}
+.viewer-sheet,.viewer-panel>dialog{margin:0;padding:8px 10px;width:100%;min-width:0;color:var(--text);background:var(--bg)}
+.sheet-heading,.viewer-panel .dialog-title{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:28px;margin-bottom:6px;font-size:11px;font-weight:500}
+.viewer-panel .dialog-title h2{font-size:12px}
+.viewer-panel>dialog{position:static;inset:auto;transform:none;max-width:none;max-height:none;max-block-size:none;border:0;border-radius:0;box-shadow:none;flex-shrink:0}
+.viewer-panel>dialog:not([open]){display:none}
+.viewer-panel .dialog-note,.sheet-note{font-size:11px;line-height:1.6;overflow-wrap:anywhere;margin:6px 0;color:var(--secondary)}
+.viewer-panel .dialog-note{padding-top:8px}.viewer-panel .setting-row{font-size:12px;margin:10px 0}
+.viewer-panel .setting-row select{font-size:11px;padding:5px 7px;max-width:50%}
+.viewer-panel .cache-summary{font-size:11px;margin:8px 0;line-height:1.6}
+.viewer-panel .secondary-button{font-size:11px;padding:6px 9px;margin:3px 0}
+.viewer-panel .shortcut-list{margin:10px 0}.viewer-panel .shortcut-list div{margin:8px 0}
+.viewer-panel .image-info{display:block;max-width:none;margin:0;padding:0;background:none;border-radius:0;box-shadow:none}
+.viewer-panel .image-info h2{font-size:12px;white-space:normal;line-height:1.5;overflow-wrap:anywhere}
+.viewer-panel .image-info p{font-size:10px;line-height:1.6;margin:4px 0}
+.viewer-panel .image-position,.viewer-panel .favorite-status{font-size:10px;width:auto;padding:0;margin-right:8px;background:none;border-radius:0;box-shadow:none;display:inline}
+.viewer-panel .zoom-controls{height:30px;width:max-content;max-width:100%;margin:8px 0;padding:0;gap:2px;box-shadow:none;border:0;border-radius:0}
+.viewer-panel .zoom-value{width:48px;height:28px;font-size:10px}
+.sheet-actions{display:flex;flex-wrap:wrap;gap:2px 6px}
+.sheet-actions button{display:flex;align-items:center;gap:6px;min-height:28px;padding:4px 6px;border-radius:5px;font-size:11px;text-align:left}
+.viewer[data-dock=side] .sheet-actions button{flex:1 1 115px}
+.viewer .edit-composer{position:static;inset:auto;transform:none;width:100%;display:flex;align-items:flex-end;gap:6px;padding:6px 7px;border:1px solid var(--border);border-radius:12px;box-shadow:none;opacity:1;pointer-events:auto;transition:none}
+.viewer .edit-composer textarea{height:24px;max-height:72px;line-height:24px;font-size:12px;margin:0;padding:0;overflow-y:auto;box-sizing:content-box}
+.viewer .edit-composer .icon-button{border-radius:50%;color:var(--bg);background:var(--text)}
+.viewer .edit-composer .icon-button:hover{background:var(--text);opacity:.85}
+.viewer-panel #prompt-text{height:140px;max-height:calc(var(--panel-height,100vh) - 80px);min-height:48px;resize:none;font-size:11px;padding:8px}
+.viewer[data-dock=side] .viewer-panel #prompt-text{max-height:calc(100dvh - 100px)}
+.viewer-controls .status{position:static;inset:auto;transform:none;padding:0;margin:0;width:28px;max-width:none;min-width:28px;flex-shrink:0;border:0;background:none;box-shadow:none;font-size:11px}
+.viewer-controls #status-text{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.grid-layout .status{padding:0}.grid-layout #notice-toggle{display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:8px;font-size:11px;line-height:1.5;text-align:left}
+.grid-layout .status .icon{width:16px;height:16px;flex-shrink:0}
+.viewer-controls button:focus-visible{outline-offset:-2px}
+@media(prefers-reduced-motion:reduce){.primary-controls{transition:none}}
+
+.viewer[data-dock=side] .viewer-panel>*{margin-block:auto}
+.viewer[data-dock=bottom] .viewer-sheet,.viewer[data-dock=bottom] .viewer-panel>dialog{max-width:720px;margin-inline:auto}
+.viewer[data-dock=bottom] #edit-panel{max-width:500px}

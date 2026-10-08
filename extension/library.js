@@ -4,6 +4,7 @@ import { GRID_SIZES } from './masonry.js';
 import { VirtualGallery } from './virtual-gallery.js';
 import { cacheDisplay } from './cache-display.js';
 import { ThumbnailCache } from './thumbnail-cache.js';
+import { viewerDock } from './viewer-layout.js';
 
 const extension = globalThis.browser || globalThis.chrome;
 const preview = new URLSearchParams(location.search).get('preview') === '1' && !extension?.runtime?.id;
@@ -11,7 +12,8 @@ const $ = id => document.getElementById(id);
 const mainImage = $('main-image'), viewport = $('viewport'), thumbnails = $('thumbnails');
 let account = null, online = false, images = [], filter = 'all', selectedId = null, selectedImage = null;
 let transform = { scale: 1, x: 0, y: 0 }, width = 0, height = 0;
-let viewMode = 'fit', sidebarHidden = false, chromeTimer;
+let viewMode = 'fit', sidebarHidden = true, chromeTimer;
+let viewerPanel = null, viewerLayoutFrame = 0;
 let layout = 'grid', gridSize = 'medium';
 let hiddenIds = new Set(), filterStates = {}, listHidden;
 const hiddenPending = new Set(), promptCache = new Map();
@@ -57,7 +59,61 @@ async function rpc(type, args = {}) {
   if (!response?.ok) throw Object.assign(new Error(response?.error || '扩展连接中断，请重试。'), { code: response?.code });
   return response.result;
 }
-function status(text) { $('status').textContent = text || ''; $('status').hidden = !text; }
+function status(text) {
+  $('status-text').textContent = $('notice-text').textContent = text || '';
+  $('notice-toggle').title = text || '查看提示';
+  $('notice-toggle').setAttribute('aria-label', text || '查看提示');
+  $('status').hidden = !text;
+  if (!text && viewerPanel === 'notice') closeViewerPanel(false);
+  if (text) revealControls();
+}
+function closeViewerPanel(focus = true) {
+  const previous = viewerPanel; viewerPanel = null;
+  for (const id of ['more', 'edit', 'notice']) $(`${id}-panel`).hidden = true;
+  for (const id of ['help-dialog', 'settings-dialog', 'prompt-dialog']) {
+    const dialog = $(id); if (dialog.open) dialog.close();
+    if (dialog.parentElement === $('viewer-panel')) document.body.append(dialog);
+  }
+  $('viewer-panel').hidden = true;
+  $('toggle-edit').setAttribute('aria-expanded', 'false'); $('toggle-more').setAttribute('aria-expanded', 'false');
+  $('describe-edits').hidden = true;
+  requestViewerLayout();
+  if (focus && previous) $(previous === 'edit' ? 'toggle-edit' : 'toggle-more').focus({ preventScroll: true });
+}
+function openViewerPanel(kind) {
+  closeViewerPanel(false); viewerPanel = kind; $('viewer-panel').hidden = false;
+  if (kind.endsWith('-dialog')) {
+    $('viewer-panel').append($(kind)); $(kind).show();
+  } else $(`${kind}-panel`).hidden = false;
+  $('toggle-edit').setAttribute('aria-expanded', String(kind === 'edit'));
+  $('toggle-more').setAttribute('aria-expanded', String(kind === 'more'));
+  updateControls(); resizeEditPrompt(); requestViewerLayout(); revealControls();
+  if (kind === 'edit') $('edit-prompt').focus({ preventScroll: true });
+  requestAnimationFrame(() => { if (viewerPanel === kind) $('viewer-panel').scrollTop = 0; });
+}
+function showDialog(id) {
+  if (layout === 'viewer') openViewerPanel(id); else $(id).showModal();
+}
+function requestViewerLayout() {
+  if (viewerLayoutFrame) return;
+  viewerLayoutFrame = requestAnimationFrame(() => { viewerLayoutFrame = 0; updateViewerLayout(); });
+}
+function updateViewerLayout() {
+  if (layout !== 'viewer') return;
+  const viewer = $('viewer');
+  const sizes = { edit: [300, 66 + (parseFloat($('edit-prompt').style.height) || 24)], more: [300, 220], notice: [300, 132],
+    'settings-dialog': [320, 260], 'help-dialog': [320, 240], 'prompt-dialog': [320, 240] };
+  const [panelWidth, panelHeight] = sizes[viewerPanel] || [0, 0];
+  const dock = viewerDock({ width: viewer.clientWidth, height: viewer.clientHeight, imageWidth: width || current()?.width || viewer.clientWidth,
+    imageHeight: height || current()?.height || viewer.clientHeight, panelWidth, panelHeight, current: viewer.dataset.dock });
+  const previousGeometry = `${viewer.dataset.dock}:${viewer.style.getPropertyValue('--panel-width')}`;
+  viewer.dataset.dock = dock.edge;
+  viewer.style.setProperty('--panel-width', `${viewerPanel ? dock.panelWidth : 0}px`);
+  viewer.style.setProperty('--panel-height', `${viewerPanel ? dock.panelHeight : 0}px`);
+  viewer.style.setProperty('--rail-height', `${dock.railHeight}px`);
+  if (viewerPanel === 'edit' && previousGeometry !== `${dock.edge}:${viewer.style.getPropertyValue('--panel-width')}`) resizeEditPrompt();
+}
+
 function displayDate(time) { return time ? new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(time) : ''; }
 function list() {
   if (listImages !== images || listFilter !== filter || listHidden !== hiddenIds) {
@@ -124,9 +180,11 @@ function renderList(preserve = true, animate = false) {
 
 function changeLayout(value) {
   gallery.setActive(false); sidebarGallery.setActive(false);
+  closeViewerPanel(false);
   layout = value; document.body.classList.toggle('grid-layout', layout === 'grid');
   gallery.setActive(layout === 'grid'); sidebarGallery.setActive(layout === 'viewer' && !sidebarHidden);
-  saveView();
+  if (layout === 'viewer') $('controls-rail').prepend($('status')); else document.body.append($('status'));
+  requestViewerLayout(); revealControls(); saveView();
 }
 function openViewer(id) {
   id ||= list().some(image => image.id === selectedId) ? selectedId : list()[0]?.id;
@@ -148,10 +206,14 @@ function updateControls() {
   $('next').disabled = !image || !visible.length || index === visible.length - 1;
   $('favorite').disabled = !image;
   $('hide-image').disabled = !image || hiddenPending.has(`${account}:${image?.id}`);
+  $('hide-image-label').textContent = filter === 'hidden' ? '取消隐藏' : '隐藏图片';
   $('hide-image').title = $('hide-image').ariaLabel = filter === 'hidden' ? '取消隐藏' : '隐藏图片';
   $('locate-all').hidden = filter !== 'favorites' || !image || (image.deleted && !image.localOriginal);
   $('copy-prompt').disabled = !image?.conversationId || Boolean(promptJob);
-  $('describe-edits').hidden = !image?.conversationId || !image?.fileId || Boolean(image.deleted);
+  const canEdit = Boolean(image?.conversationId && image?.fileId && !image.deleted);
+  $('toggle-edit').disabled = !canEdit;
+  if (!canEdit && viewerPanel === 'edit') closeViewerPanel(false);
+  $('describe-edits').hidden = !canEdit || viewerPanel !== 'edit';
   $('submit-edit').disabled = !image || !online || Boolean(editJob) || !$('edit-prompt').value.trim();
   $('favorite').classList.toggle('favorited', Boolean(image?.favorite));
   $('favorite').setAttribute('aria-label', image?.favorite ? '取消收藏' : '收藏图片');
@@ -192,6 +254,7 @@ function viewportPoint(event) {
 async function select(id, restoredTransform = null) {
   list(); const image = imageById.get(id);
   if (!image || hiddenIds.has(id) !== (filter === 'hidden')) return;
+  if (id !== selectedId && viewerPanel === 'edit') closeViewerPanel(false);
   const sequence = ++loadSequence, targetAccount = account;
   selectedId = id; selectedImage = { ...image }; width = 0; height = 0;
   $('edit-prompt').value = editDrafts.get(`${account}:${id}`) || ''; resizeEditPrompt();
@@ -209,6 +272,7 @@ async function select(id, restoredTransform = null) {
     currentURL = url; mainImage.src = url; mainImage.alt = image.title;
     width = loaded.naturalWidth; height = loaded.naturalHeight;
     gallery.measure(id, width, height);
+    updateViewerLayout();
     transform = restoredTransform || { scale: fitScale(width, height, viewport.clientWidth, viewport.clientHeight), x: 0, y: 0 };
     if (!restoredTransform) viewMode = 'fit';
     mainImage.hidden = false; $('image-loading').hidden = true; viewport.classList.add('has-image');
@@ -300,7 +364,7 @@ function copyPrompt() {
       writing = navigator.clipboard.writeText(promptCache.get(key));
     } else {
       writing = textPromise.then(text => {
-        $('prompt-text').value = text; $('prompt-dialog').showModal();
+        $('prompt-text').value = text; showDialog('prompt-dialog');
         throw new Error('请手动复制已显示的 prompt。');
       });
     }
@@ -320,7 +384,7 @@ async function updateStorage() {
   const storage = `缓存 ${formatBytes(usage.cache)} · 收藏 ${formatBytes(usage.favorites)}`;
   for (const id of ['storage-usage', 'settings-storage', 'grid-storage']) $(id).textContent = storage;
   const display = cacheDisplay(usage);
-  for (const id of ['cache-progress', 'grid-cache-progress', 'settings-progress']) $(id).textContent = display.text;
+  for (const id of ['cache-progress', 'grid-cache-progress', 'settings-progress', 'viewer-cache-progress']) $(id).textContent = display.text;
   for (const id of ['sidebar-cache-bar', 'grid-cache-bar']) {
     if (display.percent === null) $(id).removeAttribute('value'); else $(id).value = display.percent;
     $(id).classList.toggle('cache-paused', usage.phase === 'paused');
@@ -377,7 +441,7 @@ async function restoreAccount(identity) {
     const saved = await getValue('views', account);
     viewMode = saved?.viewMode === 'custom' ? 'custom' : 'fit';
     transform = saved?.transform || { scale: 1, x: 0, y: 0 };
-    sidebarHidden = saved?.sidebarHidden === true;
+    sidebarHidden = typeof saved?.sidebarHidden === 'boolean' ? saved.sidebarHidden : true;
     filter = ['all', 'favorites', 'hidden'].includes(saved?.filter) ? saved.filter : 'all';
     filterStates = saved?.filterStates || { [filter]: { grid: saved?.gridState || {}, sidebar: { scrollTop: saved?.scrollTop, anchor: saved?.sidebarAnchor } } };
     gridSize = Object.hasOwn(GRID_SIZES, saved?.gridSize) ? saved.gridSize : 'medium';
@@ -456,6 +520,7 @@ function updateSidebar() {
   $('toggle-sidebar').setAttribute('aria-label', sidebarHidden ? '展开缩略图栏' : '收起缩略图栏');
   $('toggle-sidebar').title = sidebarHidden ? '展开缩略图栏' : '收起缩略图栏';
   sidebarGallery.setActive(layout === 'viewer' && !sidebarHidden);
+  requestViewerLayout();
 }
 $('toggle-sidebar').addEventListener('click', () => { sidebarHidden = !sidebarHidden; updateSidebar(); saveView(); });
 $('refresh').addEventListener('click', refresh);
@@ -468,11 +533,26 @@ $('copy-prompt').addEventListener('click', copyPrompt);
 $('fit').addEventListener('click', fit); $('actual-size').addEventListener('click', () => zoom(1));
 $('zoom-in').addEventListener('click', () => zoom(transform.scale * 1.25)); $('zoom-out').addEventListener('click', () => zoom(transform.scale / 1.25));
 $('retry').addEventListener('click', () => selectedId && select(selectedId, transform));
-$('help').addEventListener('click', () => $('help-dialog').showModal());
-$('settings').addEventListener('click', () => { $('settings-dialog').showModal(); updateStorage().catch(error => status(error.message)); });
+$('help').addEventListener('click', () => showDialog('help-dialog'));
+$('settings').addEventListener('click', () => { showDialog('settings-dialog'); updateStorage().catch(error => status(error.message)); });
 $('grid-settings').addEventListener('click', () => $('settings').click());
 $('grid-help').addEventListener('click', () => $('help').click());
 $('grid-connect').addEventListener('click', () => $('connect').click());
+$('toggle-edit').addEventListener('click', () => viewerPanel === 'edit' ? closeViewerPanel() : openViewerPanel('edit'));
+$('toggle-more').addEventListener('click', () => viewerPanel === 'more' ? closeViewerPanel() : openViewerPanel('more'));
+$('notice-toggle').addEventListener('click', () => { if (layout === 'viewer') viewerPanel === 'notice' ? closeViewerPanel() : openViewerPanel('notice'); });
+for (const button of document.querySelectorAll('[data-close-viewer-panel]')) button.addEventListener('click', () => closeViewerPanel());
+for (const id of ['help-dialog', 'settings-dialog', 'prompt-dialog']) $(id).addEventListener('close', () => { if (viewerPanel === id && !$(id).open) closeViewerPanel(); });
+$('viewer-settings').addEventListener('click', () => $('settings').click());
+$('viewer-help').addEventListener('click', () => $('help').click());
+$('viewer-refresh').addEventListener('click', refresh);
+$('edit-prompt').addEventListener('focus', revealControls);
+$('edit-prompt').addEventListener('blur', revealControls);
+let viewerDimensions = '';
+new ResizeObserver(() => {
+  const dimensions = `${$('viewer').clientWidth}:${$('viewer').clientHeight}`;
+  if (dimensions !== viewerDimensions) { viewerDimensions = dimensions; requestViewerLayout(); }
+}).observe($('viewer'));
 $('cache-mode').addEventListener('change', async event => {
   event.target.disabled = true;
   try { await rpc('set-settings', { account, cacheMode: event.target.value }); await updateStorage(); }
@@ -513,6 +593,7 @@ $('download').addEventListener('click', async () => {
   anchor.click();
 });
 document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && viewerPanel) { event.preventDefault(); closeViewerPanel(); return; }
   if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest('input,textarea,select,[contenteditable]') || $('help-dialog').open || $('settings-dialog').open || $('prompt-dialog').open) return;
   if (layout === 'grid') {
     const id = event.target.closest('.grid-card')?.dataset.id;
@@ -549,10 +630,14 @@ new ResizeObserver(() => { if (width && layout === 'viewer') {
 } }).observe(viewport);
 function revealControls() {
   document.body.classList.remove('controls-idle'); clearTimeout(chromeTimer);
-  chromeTimer = setTimeout(() => document.body.classList.add('controls-idle'), 2200);
+  chromeTimer = setTimeout(() => {
+    document.body.classList.add('controls-idle');
+    if (viewerPanel === 'edit' && !editJob && !$('edit-prompt').value && !$('edit-panel').contains(document.activeElement)) closeViewerPanel(false);
+  }, 2200);
 }
 function resizeEditPrompt() {
-  const input = $('edit-prompt'); input.style.height = 'auto'; input.style.height = `${Math.min(88, Math.max(24, input.scrollHeight))}px`;
+  const input = $('edit-prompt'); input.style.height = '24px'; input.style.height = `${Math.min(72, Math.max(24, input.scrollHeight))}px`;
+  if (viewerPanel === 'edit') requestViewerLayout();
 }
 $('edit-prompt').addEventListener('input', () => {
   const key = `${account}:${selectedId}`;
@@ -574,7 +659,7 @@ $('describe-edits').addEventListener('submit', async event => {
       const key = `${account}:${image.id}`;
       if ((editDrafts.get(key) || '').trim() === prompt) {
         editDrafts.delete(key);
-        if (selectedId === image.id) { $('edit-prompt').value = ''; resizeEditPrompt(); }
+        if (selectedId === image.id) { $('edit-prompt').value = ''; resizeEditPrompt(); if (viewerPanel === 'edit') closeViewerPanel(false); }
       }
       status('Describe edits 已在新窗口提交');
     }
