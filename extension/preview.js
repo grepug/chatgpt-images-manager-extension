@@ -1,6 +1,6 @@
 // Only used by the explicit localhost preview; never enabled on an extension origin.
 import { mergeLibrary, storeAsset, setFavorite, setHidden, getImages, getAsset, putValue, trimCache, assetMetadata, storageUsage } from './db.js';
-import { cachePeriod, cacheProgress } from './cache-policy.js';
+import { cacheMode, cacheProgress } from './cache-policy.js';
 const account = 'preview-account';
 let held = null;
 export function fixtureDimensions(index) {
@@ -26,22 +26,22 @@ export async function seedPreview() {
   await putValue('accounts', { key: account, name: '预览 · 测试图片' });
 }
 export async function previewRPC(type, args) {
-  const period = cachePeriod(localStorage.getItem('previewCachePeriod'));
+  const mode = cacheMode(localStorage.getItem('previewCacheMode'));
   if (type === 'connect') return { id: account, name: '预览 · 测试图片', online: true };
   if (type === 'sync' || type === 'retry-favorites') return {};
   if (type === 'view-hold') {
     held = args.id;
-    await trimCache(new Set(['original', 'thumbnail'].map(kind => `${account}:${held}:${kind}`)), period);
     return {};
   }
-  if (type === 'settings') return { cachePeriod: period };
+  if (type === 'settings') return { cacheMode: mode };
   if (type === 'set-settings') {
-    localStorage.setItem('previewCachePeriod', cachePeriod(args.cachePeriod));
-    await trimCache(new Set(['original', 'thumbnail'].map(kind => `${account}:${held}:${kind}`)), args.cachePeriod);
+    localStorage.setItem('previewCacheMode', cacheMode(args.cacheMode));
     return {};
   }
-  if (type === 'retry-cache') return {};
-  if (type === 'cache-status') return { cachePeriod: period, ...cacheProgress(await getImages(account), await assetMetadata(account), period), ...await storageUsage(account), phase: 'idle', failed: 0, ...JSON.parse(localStorage.getItem('previewCacheState') || '{}') };
+  if (type === 'demand-cache') { window.dispatchEvent(new CustomEvent('preview-demand-cache', { detail: args })); return {}; }
+  if (['retry-cache', 'retry-migration'].includes(type)) return {};
+  if (['pause-cache', 'resume-cache'].includes(type)) { localStorage.setItem('previewPaused', String(type === 'pause-cache')); return {}; }
+  if (type === 'cache-status') return { cacheMode: mode, paused: localStorage.getItem('previewPaused') === 'true', migration: { phase: 'preview' }, ...cacheProgress(await getImages(account), await assetMetadata(account)), ...await storageUsage(account), phase: localStorage.getItem('previewPaused') === 'true' ? 'paused' : 'idle', failed: 0, ...JSON.parse(localStorage.getItem('previewCacheState') || '{}') };
   if (type === 'favorite') {
     const image = await setFavorite(account, args.id, args.favorite);
     window.dispatchEvent(new Event('preview-library-event')); return image;

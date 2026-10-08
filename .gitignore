@@ -2,3 +2,5 @@ node_modules/
 build/
 artifacts/
 .DS_Store
+.local-signing.json
+native/.build/

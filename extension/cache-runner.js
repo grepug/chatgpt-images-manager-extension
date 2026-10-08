@@ -1,4 +1,4 @@
-import { cachePeriod, pendingAssets, cacheProgress } from './cache-policy.js';
+import { cacheMode, pendingAssets, cacheProgress } from './cache-policy.js';
 
 // Every completed page and asset is durable. A new runner can continue after Safari
 // suspends the background; partially downloaded bytes are retried as a whole image.
@@ -7,6 +7,7 @@ export class CacheRunner {
   async run(account, { budget = 18000, retry = false } = {}) {
     const io = this.io, started = io.now();
     let job = await io.job(account) || { key: account, phase: 'idle', failures: {} };
+    if ((await io.config()).paused) return { pending: false, job };
     if (job.quotaPaused && !retry) return { pending: false, job };
     if ((job.retryAt || 0) > started && !retry) return { pending: false, job };
     if (retry) { job.failures = {}; job.quotaPaused = false; job.retryAt = 0; }
@@ -19,6 +20,7 @@ export class CacheRunner {
       }
       let advanced = false;
       do {
+        if ((await io.config()).paused) break;
         if (job.scan) {
           const scan = job.scan;
           const page = await io.page(account, scan);
@@ -41,14 +43,18 @@ export class CacheRunner {
           } else await save({ scan: next, phase: 'scan', loaded: seen.size, error: '' });
           await io.updated(account); advanced = true;
         }
-        const period = cachePeriod(await io.period());
-        await io.clean(period);
+        const config = await io.config(), mode = cacheMode(config.cacheMode);
         const images = await io.images(account), metadata = await io.assets(account);
-        const pending = pendingAssets(images, metadata, period, job.failures, io.now());
+        const pending = pendingAssets(images, metadata, mode, job.failures, io.now(), await io.demand(account));
         // Downloads are sequential, with interactive viewing handled independently.
         const batch = pending.slice(0, job.scan ? 2 : 4);
         for (const item of batch) {
           if (io.now() - started >= budget && advanced) break;
+          const current = await io.config();
+          if (current.paused) break;
+          // A mode change may invalidate a batch that was selected moments ago.
+          if (current.cacheMode !== mode && !pendingAssets(await io.images(account), await io.assets(account), current.cacheMode,
+            job.failures, io.now(), await io.demand(account)).some(value => value.key === item.key)) continue;
           try {
             await save({ activeAsset: { id: item.id, kind: item.kind } });
             await io.progress?.(account);
@@ -62,14 +68,14 @@ export class CacheRunner {
           }
           advanced = true;
         }
-        const progress = cacheProgress(await io.images(account), await io.assets(account), period, io.now());
-        await save({ ...progress, phase: job.scan ? 'scan' : progress.completed === progress.total ? 'idle' : 'cache' });
+        const progress = cacheProgress(await io.images(account), await io.assets(account));
+        await save({ ...progress, phase: job.scan ? 'scan' : progress.completed === progress.total || mode === 'demand' ? 'idle' : 'cache' });
         await io.updated(account);
         if (!job.scan && !pending.length) break;
       } while (io.now() - started < budget);
-      const period = cachePeriod(await io.period());
-      const pending = pendingAssets(await io.images(account), await io.assets(account), period, job.failures, io.now());
-      return { pending: Boolean(job.scan || pending.length), job };
+      const config = await io.config();
+      const pending = pendingAssets(await io.images(account), await io.assets(account), config.cacheMode, job.failures, io.now(), await io.demand(account));
+      return { pending: !config.paused && Boolean(job.scan || pending.length), job };
     } catch (error) {
       const quotaPaused = error.name === 'QuotaExceededError' || error.code === 'QUOTA';
       if (['DATA', 'CURSOR'].includes(error.code)) job.scan = null;

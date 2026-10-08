@@ -23,6 +23,18 @@ let currentURL = null, saveTimer, gestureStart = null, dragStart = null;
 const queue = []; let queueRunning = 0;
 let storageSequence = 0;
 let listImages, listFilter, visibleList = [], imageById = new Map(), reloadTimer;
+let demandFrame = 0, demandAccount = null;
+const demandIds = new Set();
+function demandVisible(id) {
+  if (demandAccount !== account) { demandIds.clear(); demandAccount = account; }
+  demandIds.add(id);
+  if (demandFrame) return;
+  demandFrame = requestAnimationFrame(() => {
+    demandFrame = 0;
+    const ids = [...demandIds], targetAccount = demandAccount; demandIds.clear();
+    if (targetAccount === account && ids.length) rpc('demand-cache', { account, ids }).catch(() => {});
+  });
+}
 const thumbnailCache = new ThumbnailCache({ readThumbnail: getThumbnailAsset, readOriginal: getAsset,
   download: async (targetAccount, image) => {
     const result = await rpc('asset', { account: targetAccount, id: image.id, kind: 'thumbnail' });
@@ -33,6 +45,7 @@ const thumbnailCache = new ThumbnailCache({ readThumbnail: getThumbnailAsset, re
   }) });
 const gallery = new VirtualGallery({ host: $('grid-scroll'), canvas: $('grid-canvas'), loadImage: thumbnailURL,
   openImage: openViewer, favorite: toggleFavorite, hideImage: toggleHidden, locateImage: locateAll,
+  onVisible: demandVisible,
   onScroll: saveView, starIcon: () => icon('star'), actionIcon: icon });
 const sidebarGallery = new VirtualGallery({ host: thumbnails, canvas: $('thumbnail-canvas'), sidebar: true,
   loadImage: thumbnailURL, openImage: select, onScroll: saveView, starIcon: () => icon('star') });
@@ -97,9 +110,9 @@ function renderList(preserve = true, animate = false) {
   $('grid-empty').hidden = Boolean(visible.length); $('grid-empty-text').textContent = emptyText;
   $('sidebar-empty').hidden = Boolean(visible.length); $('sidebar-empty').textContent = emptyText;
   for (const prefix of ['', 'grid-']) {
-    $(`${prefix}all-count`).textContent = images.filter(image => !image.deleted && !hiddenIds.has(image.id)).length;
+    $(`${prefix}all-count`).textContent = visibleImages(images, 'all', hiddenIds).length;
     $(`${prefix}favorite-count`).textContent = images.filter(image => image.favorite && !hiddenIds.has(image.id)).length;
-    $(`${prefix}hidden-count`).textContent = images.filter(image => hiddenIds.has(image.id) && (!image.deleted || image.favorite)).length;
+    $(`${prefix}hidden-count`).textContent = visibleImages(images, 'hidden', hiddenIds).length;
     for (const value of ['all', 'favorites', 'hidden']) {
       $(`${prefix}filter-${value}`).classList.toggle('active', filter === value);
       $(`${prefix}filter-${value}`).setAttribute('aria-pressed', String(filter === value));
@@ -136,7 +149,7 @@ function updateControls() {
   $('favorite').disabled = !image;
   $('hide-image').disabled = !image || hiddenPending.has(`${account}:${image?.id}`);
   $('hide-image').title = $('hide-image').ariaLabel = filter === 'hidden' ? '取消隐藏' : '隐藏图片';
-  $('locate-all').hidden = filter !== 'favorites' || !image || image.deleted;
+  $('locate-all').hidden = filter !== 'favorites' || !image || (image.deleted && !image.localOriginal);
   $('copy-prompt').disabled = !image?.conversationId || Boolean(promptJob);
   $('describe-edits').hidden = !image?.conversationId || !image?.fileId || Boolean(image.deleted);
   $('submit-edit').disabled = !image || !online || Boolean(editJob) || !$('edit-prompt').value.trim();
@@ -152,7 +165,7 @@ function updateControls() {
   $('favorite-status').textContent = image?.favorite ? image.saved ? '已收藏 · 已保存在本地' : '已收藏 · 尚未保存原图' : '';
   if (image) {
     $('image-title').textContent = image.title;
-    $('image-meta').textContent = [displayDate(image.createdAt), width && `${width} × ${height}`, image.deleted && '已从 ChatGPT 移除'].filter(Boolean).join(' · ');
+    $('image-meta').textContent = [displayDate(image.createdAt), width && `${width} × ${height}`, image.deleted && '来源已删除'].filter(Boolean).join(' · ');
   }
 }
 function applyTransform() {
@@ -259,7 +272,7 @@ async function toggleHidden(id = selectedId) {
 }
 function locateAll(id = selectedId) {
   list(); const image = imageById.get(id);
-  if (filter !== 'favorites' || !image || image.deleted || hiddenIds.has(id)) return;
+  if (filter !== 'favorites' || !image || (image.deleted && !image.localOriginal) || hiddenIds.has(id)) return;
   changeFilter('all'); returnToGrid();
   gallery.scrollToId(id, true, true); saveView(true)?.catch(() => {});
 }
@@ -314,7 +327,15 @@ async function updateStorage() {
     $(id).setAttribute('aria-valuetext', display.text);
   }
   $('settings-error').textContent = usage.error || ''; $('settings-error').hidden = !usage.error;
-  $('cache-period').value = usage.cachePeriod;
+  $('cache-mode').value = usage.cacheMode || 'full';
+  $('pause-cache').hidden = Boolean(usage.paused); $('resume-cache').hidden = !usage.paused;
+  $('local-retained').textContent = `本地保留 ${usage.retained || 0} 张 · 来源已删除，仍可查看`;
+  const migration = usage.migration || {};
+  const phases = { pending: '等待迁移', copying: '正在迁移', verifying: '正在核对原图', paused: '迁移已暂停', verified: '迁移已核对完成，旧副本仍保留', cleaned: '旧原图副本已清理', empty: '当前扩展存储中没有旧原图；其它签名版本的旧存储需单独导入', preview: '预览使用合成数据' };
+  $('migration-status').textContent = [phases[migration.phase] || '', migration.total ? `${migration.completed || 0} / ${migration.total} 张` : '', migration.error].filter(Boolean).join(' · ');
+  $('retry-migration').hidden = !['paused', 'pending'].includes(migration.phase) || Boolean(migration.external);
+  $('clean-legacy').hidden = migration.phase !== 'verified';
+  $('clean-legacy').textContent = migration.external ? '清理旧存储…' : '清理旧存储';
   $('retry-cache').disabled = !targetAccount;
 }
 function snapshotView() {
@@ -452,15 +473,30 @@ $('settings').addEventListener('click', () => { $('settings-dialog').showModal()
 $('grid-settings').addEventListener('click', () => $('settings').click());
 $('grid-help').addEventListener('click', () => $('help').click());
 $('grid-connect').addEventListener('click', () => $('connect').click());
-$('cache-period').addEventListener('change', async event => {
+$('cache-mode').addEventListener('change', async event => {
   event.target.disabled = true;
-  try { await rpc('set-settings', { account, cachePeriod: event.target.value }); await updateStorage(); }
+  try { await rpc('set-settings', { account, cacheMode: event.target.value }); await updateStorage(); }
   catch (error) { status(error.message); }
   finally { event.target.disabled = false; }
 });
 $('retry-cache').addEventListener('click', async () => {
   try { await rpc('retry-cache', { account }); await updateStorage(); }
   catch (error) { status(error.message); }
+});
+for (const type of ['pause-cache', 'resume-cache', 'retry-migration', 'clean-legacy']) $(type).addEventListener('click', async event => {
+  event.target.disabled = true;
+  try {
+    const result = await rpc(type, { account });
+    if (result?.receipt) {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(result.receipt)], { type: 'application/json' }));
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'images-manager-migration-receipt.json'; anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      status('核对凭据已下载。在旧存储导出工具中选择此文件，再点击清理；旧存储现在仍保留。');
+    }
+    await updateStorage();
+  }
+  catch (error) { status(error.message); }
+  finally { event.target.disabled = false; }
 });
 $('connect').addEventListener('click', () => extension?.tabs ? extension.tabs.create({ url: 'https://chatgpt.com/images' }) : window.open('https://chatgpt.com/images', '_blank', 'noopener'));
 $('conversation').addEventListener('click', () => {

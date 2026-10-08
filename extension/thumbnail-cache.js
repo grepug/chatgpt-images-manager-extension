@@ -92,7 +92,7 @@ export class ThumbnailCache {
   async load(entry, account, image, box) {
     const alive = () => entry.generation === this.generation && [...entry.consumers].some(c => c.alive());
     const priority = () => Math.min(...[...entry.consumers].map(c => c.priority()));
-    const cached = await this.reads.run(() => this.readThumbnail(account, image.id), alive, priority);
+    const cached = await this.reads.run(() => this.readThumbnail(account, image.id, box), alive, priority);
     if (!alive()) return null;
     let data;
     if (cached?.thumbnailVersion === THUMBNAIL_VERSION && fitsThumbnail(cached, box)) {

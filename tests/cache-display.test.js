@@ -3,9 +3,14 @@ import assert from 'node:assert/strict';
 import { cacheDisplay } from '../extension/cache-display.js';
 test('active original and thumbnail downloads are explicit and show pending counts', () => {
   const usage = { completed: 25, total: 100, running: true, activeAsset: { kind: 'original' } };
-  assert.match(cacheDisplay(usage).text, /正在缓存原图.*25 \/ 100.*待缓存 75/);
+  assert.match(cacheDisplay(usage).text, /正在缓存原图.*已缓存 25 \/ 总计 100.*含隐藏/);
   assert.equal(cacheDisplay(usage).percent, 25);
   assert.match(cacheDisplay({ ...usage, activeAsset: { kind: 'thumbnail' } }).text, /正在缓存缩略图/);
+});
+test('demand mode does not describe unseen pictures as pending downloads', () => {
+  const display = cacheDisplay({ cacheMode:'demand', total:100, completed:2 });
+  assert.match(display.text,/按需缓存/); assert.doesNotMatch(display.text,/待缓存/);
+  assert.doesNotMatch(cacheDisplay({ total:10, completed:10, failed:1 }).text,/缓存已完成/);
 });
 test('an unfinished scan never claims 100 percent or complete even when known images are cached', () => {
   const state = cacheDisplay({ completed: 100, total: 100, scanning: true });

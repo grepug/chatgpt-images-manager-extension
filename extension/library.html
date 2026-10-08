@@ -107,12 +107,19 @@
       <button id="submit-edit" class="icon-button" type="submit" aria-label="提交 Describe edits，在新窗口中打开" title="提交 Describe edits，在新窗口中打开" disabled><svg class="icon"><use href="#icon-send"/></svg></button>
     </form>
   </main>
-  <dialog id="help-dialog"><form method="dialog"><div class="dialog-title"><h2>快捷键与手势</h2><button class="icon-button" aria-label="关闭快捷键说明">×</button></div><dl class="shortcut-list"><div><dt>上一张 / 下一张</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div><div><dt>收藏 / 取消收藏</dt><dd><kbd>F</kbd></dd></div><div><dt>适应窗口</dt><dd><kbd>0</kbd></dd></div><div><dt>原始尺寸</dt><dd><kbd>1</kbd></dd></div><div><dt>缩放图片</dt><dd>触控板捏合</dd></div><div><dt>平移图片</dt><dd>双指滚动 / 拖拽</dd></div></dl><p class="dialog-note">自动缓存所选时间范围内的原图和缩略图。收藏独立保留，不受时间范围清理影响。</p></form></dialog>
+  <dialog id="help-dialog"><form method="dialog"><div class="dialog-title"><h2>快捷键与手势</h2><button class="icon-button" aria-label="关闭快捷键说明">×</button></div><dl class="shortcut-list"><div><dt>上一张 / 下一张</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div><div><dt>收藏 / 取消收藏</dt><dd><kbd>F</kbd></dd></div><div><dt>适应窗口</dt><dd><kbd>0</kbd></dd></div><div><dt>原始尺寸</dt><dd><kbd>1</kbd></dd></div><div><dt>缩放图片</dt><dd>触控板捏合</dd></div><div><dt>平移图片</dt><dd>双指滚动 / 拖拽</dd></div></dl><p class="dialog-note">默认全量缓存。已缓存原图持续保留，按需缓存只下载浏览需要的图片。</p></form></dialog>
   <dialog id="settings-dialog"><form method="dialog"><div class="dialog-title"><h2>缓存设置</h2><button class="icon-button" aria-label="关闭缓存设置">×</button></div></form>
-    <label class="setting-row" for="cache-period"><span>自动缓存范围</span><select id="cache-period"><option value="1week">1 周</option><option value="1month">1 个月</option><option value="6months" selected>半年</option></select></label>
-    <p class="dialog-note">按图片创建时间自动缓存原图和缩略图，没有容量上限。超出范围的普通缓存自动清理，收藏独立保留。图片库仍显示全部历史图片。</p>
+    <label class="setting-row" for="cache-mode"><span>缓存模式</span><select id="cache-mode"><option value="demand">按需缓存</option><option value="full" selected>全量缓存</option></select></label>
+    <p class="dialog-note">按需缓存：grid 图库中的图片可见约 300 毫秒后缓存原图。全量缓存：自动保存官网图片库的所有原图，包括隐藏图片和后续新增图片。已保存原图持续保留，切换模式不会清理。</p>
     <div class="cache-summary"><p id="settings-progress">正在检查缓存…</p><p id="settings-storage">缓存 0 KB · 收藏 0 KB</p><p id="settings-error" role="status" hidden></p></div>
-    <button id="retry-cache" class="secondary-button">重试未完成的缓存</button>
+    <p id="local-retained" class="dialog-note">本地保留 0 张</p>
+    <button id="pause-cache" class="secondary-button">暂停后台缓存</button>
+    <button id="resume-cache" class="secondary-button" hidden>继续后台缓存</button>
+    <button id="retry-cache" class="secondary-button">重试失败的缓存</button>
+    <p id="migration-status" class="dialog-note" role="status"></p>
+    <button id="retry-migration" class="secondary-button" hidden>继续迁移</button>
+    <button id="clean-legacy" class="secondary-button" hidden>清理旧存储</button>
+    <p class="dialog-note">原图、图片索引、收藏和隐藏 ID 由 App 保存；缩略图可以重建。清理旧存储仅移除已核对的旧原图副本。</p>
     <p class="dialog-note">关闭图片库后继续尝试后台缓存；Safari 暂停后台或退出时会中断，下次运行自动恢复进度。</p>
   </dialog>
   <dialog id="prompt-dialog"><form method="dialog"><div class="dialog-title"><h2>图片的 prompt</h2><button class="icon-button" aria-label="关闭 prompt">×</button></div><p>浏览器未允许自动复制，可选中下面的文字手动复制。</p><textarea id="prompt-text" readonly aria-label="图片的 prompt"></textarea></form></dialog>

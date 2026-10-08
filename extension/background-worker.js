@@ -1,11 +1,13 @@
-import { getValue, putValue, updateValue, mergeLibrary, getImages, getAsset, storeAsset, setFavorite, setHidden, trimCache, assetMetadata, storageUsage } from './db.js';
-import { cachePeriod, cacheProgress } from './cache-policy.js';
+import { getValue, putValue, putValues, updateValue, allValues, mergeLibrary, getImages, getAsset, getThumbnailAsset, storeAsset, setFavorite, setHidden, assetMetadata, cacheSummary, migrateStorage, migrationStatus, cleanLegacyStorage } from './db.js';
+import { cacheMode, CACHE_MODES } from './cache-policy.js';
 import { CacheRunner } from './cache-runner.js';
 import { THUMBNAIL_VERSION } from './thumbnail-cache.js';
 import { openEditWindow } from './edit-window.js';
+import { installNativeBroker } from './native-storage.js';
 const extension = globalThis.browser || globalThis.chrome;
+installNativeBroker();
 let source = null, creatingSource = null, worker = null;
-const assetTasks = new Map(), held = new Map();
+const assetTasks = new Map();
 const editJobs = new Map();
 const ALARM = 'automatic-image-cache';
 
@@ -47,6 +49,7 @@ async function connection() {
         source = { tabId: tab.id, account: identity.id };
         await updateValue('accounts', identity.id, { name: identity.name, lastSeen: Date.now() });
         await extension.storage.local.set({ lastAccount: identity.id });
+        await updateValue('settings', 'connection', { lastAccount: identity.id });
         return { ...identity, online: true };
       } catch (error) { lastError = error; }
     }
@@ -54,7 +57,7 @@ async function connection() {
     if (!pass) tabs = [await createSource()];
   }
   source = null;
-  const { lastAccount } = await extension.storage.local.get('lastAccount');
+  const { lastAccount } = await getValue('settings', 'connection') || await extension.storage.local.get('lastAccount');
   const previous = lastAccount && await getValue('accounts', lastAccount);
   return { id: previous?.key || null, name: previous?.name || 'ChatGPT', online: false,
     error: lastError?.message || '请打开 ChatGPT 并登录。', code: lastError?.code || 'SOURCE' };
@@ -71,24 +74,9 @@ async function sourceRequest(account, command, args = {}) {
   catch (error) { if (error.code === 'SOURCE' || error.code === 'ACCOUNT_CHANGED') source = null; throw error; }
 }
 async function settings() {
-  const { cachePeriod: value } = await extension.storage.local.get('cachePeriod');
-  return { cachePeriod: cachePeriod(value) };
+  const config = await getValue('settings', 'cache') || {};
+  return { cacheMode: cacheMode(config.cacheMode), paused: Boolean(config.paused) };
 }
-async function protectedKeys(extra = []) {
-  const keys = new Set(extra);
-  const url = extension.runtime.getURL('library.html');
-  if ((await extension.tabs.query({})).some(tab => tab.url?.split('?')[0] === url)) {
-    const { lastAccount } = await extension.storage.local.get('lastAccount');
-    if (lastAccount) {
-      const view = await getValue('views', lastAccount);
-      const id = held.get(lastAccount) || (view?.layout !== 'grid' ? view?.selectedId : null);
-      if (id) for (const kind of ['original', 'thumbnail']) keys.add(`${lastAccount}:${id}:${kind}`);
-    }
-  }
-  for (const key of assetTasks.keys()) keys.add(key);
-  return keys;
-}
-async function clean(period, extra = []) { return trimCache(await protectedKeys(extra), period); }
 async function dataURL(blob) {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let binary = '';
@@ -116,6 +104,10 @@ async function asset(account, id, kind, serialize = true) {
   if (!task) {
     task = (async () => {
       let blob = await getAsset(account, id, kind);
+      if (!blob && kind === 'thumbnail') {
+        const local = await getThumbnailAsset(account, id, { width: 1536, height: 1536, dpr: 1, cover: false });
+        blob = local?.blob;
+      }
       if (!blob) {
         let details = {};
         const image = await getValue('images', `${account}:${id}`);
@@ -134,6 +126,12 @@ async function asset(account, id, kind, serialize = true) {
           if (error.name === 'QuotaExceededError') throw Object.assign(new Error('本地空间不足，缓存已暂停。'), { name: 'QuotaExceededError', code: 'QUOTA' });
           throw error;
         }
+        if (kind === 'original') {
+          try {
+            const generated = await thumbnailBlob(blob), { blob: thumbnail, ...metadata } = generated;
+            await storeAsset(account, id, 'thumbnail', thumbnail, metadata);
+          } catch { /* Original is already durable; the thumbnail can be rebuilt by the UI. */ }
+        }
       }
       return blob;
     })().finally(() => assetTasks.delete(key));
@@ -145,17 +143,18 @@ async function asset(account, id, kind, serialize = true) {
 }
 async function progress(account) {
   const config = await settings();
-  if (!account) return { ...config, completed: 0, total: 0, cache: 0, favorites: 0, phase: 'idle', failed: 0 };
+  if (!account) return { ...config, migration: await migrationStatus(), completed: 0, total: 0, retained: 0, cache: 0, favorites: 0, phase: 'idle', failed: 0 };
   const job = await getValue('jobs', account) || {};
-  const counts = cacheProgress(await getImages(account), await assetMetadata(account), config.cachePeriod);
-  return { ...config, ...counts, ...await storageUsage(account), phase: job.phase || 'idle', loaded: job.loaded || 0,
-    scanning: Boolean(job.scan), running: worker?.account === account,
+  const counts = await cacheSummary(account);
+  return { ...config, ...counts, migration: await migrationStatus(), phase: config.paused ? 'paused' : job.phase || 'idle', loaded: job.loaded || 0,
+    scanning: Boolean(job.scan) || !job.lastSync, running: worker?.account === account,
     activeAsset: worker?.account === account ? job.activeAsset : null,
     error: job.error || '', failed: Object.keys(job.failures || {}).length, quotaPaused: Boolean(job.quotaPaused) };
 }
 const runner = new CacheRunner({
   now: () => Date.now(), job: account => getValue('jobs', account), save: job => putValue('jobs', job),
-  period: async () => (await settings()).cachePeriod,
+  config: settings,
+  demand: async account => (await allValues('demands')).filter(row => row.account === account).sort((a, b) => b.at - a.at).map(row => row.id),
   verify: async account => {
     const identity = await connection();
     if (!identity.online || identity.id !== account) throw Object.assign(new Error(identity.error || 'ChatGPT 账号已切换，原账号缓存已暂停。'), { code: identity.code || 'ACCOUNT_CHANGED' });
@@ -163,7 +162,7 @@ const runner = new CacheRunner({
   page: (account, scan) => sourceRequest(account, 'page', { cursor: scan.cursor, offset: scan.offset }),
   conversation: async (account, conversation) => (await sourceRequest(account, 'conversation', { conversation })).images,
   merge: mergeLibrary, images: getImages, assets: assetMetadata,
-  asset: (account, id, kind) => asset(account, id, kind, false), clean,
+  asset: (account, id, kind) => asset(account, id, kind, false),
   updated: account => broadcast({ event: 'updated', account }),
   progress: account => broadcast({ event: 'cache-progress', account })
 });
@@ -180,7 +179,8 @@ function wake(account, retry = false) {
   });
 }
 async function resume() {
-  const { lastAccount } = await extension.storage.local.get('lastAccount');
+  await migrateStorage();
+  const { lastAccount } = await getValue('settings', 'connection') || await extension.storage.local.get('lastAccount');
   wake(lastAccount);
 }
 async function ensureAlarm() {
@@ -188,6 +188,10 @@ async function ensureAlarm() {
 }
 async function handle(message, sender) {
   assertLibrarySender(sender);
+  if (message.type === 'retry-migration') return migrateStorage();
+  if (message.type === 'clean-legacy') return cleanLegacyStorage();
+  if (message.type === 'cache-status') return progress(message.account);
+  await migrateStorage();
   if (message.type === 'connect') return connection();
   if (message.type === 'sync') {
     // Refresh the newest page immediately; the durable scan fills older history.
@@ -225,30 +229,40 @@ async function handle(message, sender) {
     if (editJobs.size > 100) editJobs.delete(editJobs.keys().next().value);
     return task;
   }
-  if (message.type === 'view-hold') { held.clear(); if (message.id) held.set(message.account, message.id); await clean((await settings()).cachePeriod); return {}; }
-  if (message.type === 'cache-status') return progress(message.account);
+  if (message.type === 'view-hold') return {};
+  if (message.type === 'demand-cache') {
+    const ids = Array.isArray(message.ids) ? message.ids.filter(id => typeof id === 'string').slice(0, 100) : [];
+    const at = Date.now();
+    await putValues('demands', ids.map(id => ({ key: `${message.account}:${id}`, account: message.account, id, at })));
+    wake(message.account); return {};
+  }
   if (message.type === 'settings') return settings();
   if (message.type === 'set-settings') {
-    if (!['1week', '1month', '6months'].includes(message.cachePeriod)) throw new Error('无效的缓存范围');
-    await extension.storage.local.set({ cachePeriod: message.cachePeriod });
-    await clean(message.cachePeriod); wake(message.account, true);
+    if (!CACHE_MODES.includes(message.cacheMode)) throw new Error('无效的缓存模式');
+    await updateValue('settings', 'cache', { cacheMode: message.cacheMode });
+    wake(message.account);
     await broadcast({ event: 'updated', account: message.account });
     return progress(message.account);
   }
   if (message.type === 'retry-cache') { wake(message.account, true); return {}; }
+  if (message.type === 'pause-cache' || message.type === 'resume-cache') {
+    await updateValue('settings', 'cache', { paused: message.type === 'pause-cache' });
+    if (message.type === 'resume-cache') wake(message.account, true);
+    await broadcast({ event: 'cache-progress', account: message.account }); return progress(message.account);
+  }
   if (message.type === 'favorite') {
     const image = await setFavorite(message.account, message.id, message.favorite === true);
     await broadcast({ event: 'updated', account: message.account });
     if (image.favorite) asset(message.account, image.id, 'original', false).then(() => broadcast({ event: 'updated', account: message.account }))
       .catch(error => broadcast({ event: 'favorite-error', account: message.account, id: image.id, error: error.message }));
-    await clean((await settings()).cachePeriod); wake(message.account);
+    wake(message.account);
     return image;
   }
   if (message.type === 'retry-favorites') { wake(message.account); return {}; }
   throw new Error('不支持的操作');
 }
 extension.runtime.onMessage.addListener((message, sender, reply) => {
-  if (message?.type === 'library-event') return false;
+  if (message?.type === 'library-event' || message?.type === 'native-storage-request') return false;
   handle(message, sender).then(result => reply({ ok: true, result }), error => reply({ ok: false, error: error.message, code: error.code }));
   return true;
 });

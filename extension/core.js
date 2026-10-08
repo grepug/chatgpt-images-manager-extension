@@ -1,6 +1,6 @@
 export function visibleImages(images, filter, hiddenIds = new Set()) {
-  return images.filter(image => filter === 'hidden' ? hiddenIds.has(image.id) && (!image.deleted || image.favorite)
-    : !hiddenIds.has(image.id) && (filter === 'favorites' ? image.favorite : !image.deleted))
+  return images.filter(image => filter === 'hidden' ? hiddenIds.has(image.id) && (!image.deleted || image.favorite || image.localOriginal)
+    : !hiddenIds.has(image.id) && (filter === 'favorites' ? image.favorite : !image.deleted || image.localOriginal))
     .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id));
 }
 

@@ -20,7 +20,7 @@
   $('edit-prompt').focus(); document.body.classList.add('controls-idle');
   await wait(250);
   assert(getComputedStyle($('describe-edits')).opacity === '1', 'Focused composer remains visible');
-  $('edit-prompt').blur(); await wait(250);
+  $('edit-prompt').blur(); await until(() => getComputedStyle($('describe-edits')).opacity === '0');
   assert(getComputedStyle($('describe-edits')).opacity === '0', 'Idle composer hides');
   document.body.classList.remove('controls-idle');
   const composer = $('describe-edits').getBoundingClientRect(), zoom = $('zoom-controls').getBoundingClientRect();

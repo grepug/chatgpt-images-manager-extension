@@ -1,0 +1,4 @@
+.legacy-transfer{padding:40px;overflow:auto;width:100%;max-width:800px;line-height:1.8}
+.legacy-transfer h1{font-size:22px;font-weight:500}
+.legacy-transfer hr{border:0;border-top:1px solid var(--border);margin:28px 0}
+.legacy-transfer input{display:block;margin-bottom:16px}

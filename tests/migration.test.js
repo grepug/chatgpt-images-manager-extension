@@ -13,7 +13,7 @@ test('v2 upgrade adds an empty ID store without rewriting existing assets or vie
     };
     opening.onsuccess = () => { opening.result.close(); resolve(); }; opening.onerror = () => reject(opening.error);
   });
-  assert.equal((await database()).version, 3);
+  assert.equal((await database()).version, 4);
   assert.equal((await getHiddenIds('a')).size, 0);
   assert.deepEqual([...new Uint8Array((await getValue('assets', 'a:i:original')).bytes)], [1, 2, 3]);
   assert.equal((await getValue('views', 'a')).gridState.scrollTop, 800);

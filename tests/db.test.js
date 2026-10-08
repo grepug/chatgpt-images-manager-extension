@@ -3,6 +3,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeLibrary, setFavorite, setHidden, getHiddenIds, allValues, storeAsset, getAsset, getImages, trimCache, storageUsage, putValue, getValue, database, getThumbnailAsset } from '../extension/db.js';
 import { visibleImages } from '../extension/core.js';
+import { readAsset } from '../extension/idb-db.js';
+
+test('migration reads legacy Blob bytes without rewriting the source',async()=>{
+  const key = 'migration-read:picture:original';
+  await putValue('assets',{key,blob:new Blob(['old original'],{type:'image/png'})});
+  const db = await database(), transaction = db.transaction.bind(db), modes = [];
+  db.transaction = (stores,mode,...args)=>{modes.push(mode || 'readonly');return transaction(stores,mode,...args);};
+  try { assert.equal(await (await readAsset('migration-read','picture')).text(),'old original'); }
+  finally { db.transaction = transaction; }
+  assert.ok(modes.every(mode=>mode==='readonly'));
+  assert.equal((await getValue('assets',key)).bytes,undefined);
+});
 
 test('hiding persists only account-scoped IDs, preserves favorites and creates no assets', async () => {
   await mergeLibrary('hidden-a', [{ id: 'same', createdAt: 2 }, { id: 'ordinary', createdAt: 1 }]);
@@ -69,7 +81,8 @@ test('collection pins existing bytes; cancellation makes them ordinary cache aga
   assert.equal((await storageUsage('account-c')).favorites, 11);
   await setFavorite('account-c', 'image', false);
   await trimCache(new Set(), '1week');
-  assert.equal(await getAsset('account-c', 'image'), null);
+  assert.ok(await getAsset('account-c', 'image'));
+  assert.equal((await storageUsage('account-c')).favorites, 0);
 });
 test('cancelling during a download cannot leave a pinned or saved favorite', async () => {
   await mergeLibrary('account-d', [{ id: 'image' }]);

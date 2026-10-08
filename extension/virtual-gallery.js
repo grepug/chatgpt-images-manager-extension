@@ -1,8 +1,9 @@
 import { masonryLayout, masonryWindow, masonryAnchor, masonryScrollTop } from './masonry.js';
 
 export class VirtualGallery {
-  constructor({ host, canvas, sidebar = false, loadImage, openImage, favorite, hideImage, locateImage, onScroll, starIcon, actionIcon }) {
-    Object.assign(this, { host, canvas, sidebar, loadImage, openImage, favorite, hideImage, locateImage, onScroll, starIcon, actionIcon });
+  constructor({ host, canvas, sidebar = false, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon }) {
+    Object.assign(this, { host, canvas, sidebar, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon });
+    this.visibilityTimers = new Map(); this.notified = new Set();
     this.images = []; this.byId = new Map(); this.nodes = new Map(); this.dimensions = new Map();
     this.prefetches = new Map(); this.exits = new Set(); this.filter = 'all';
     this.size = 'medium'; this.active = false; this.saved = { scrollTop: 0, anchor: null };
@@ -20,7 +21,7 @@ export class VirtualGallery {
     if (this.active) this.rebuild(this.saved);
   }
   reset() {
-    this.clear(); this.dimensions.clear(); this.images = []; this.byId.clear();
+    this.clear(); this.notified.clear(); this.dimensions.clear(); this.images = []; this.byId.clear();
     this.layout = masonryLayout([], 1); this.saved = { scrollTop: 0, anchor: null };
     this.canvas.style.height = '0px'; this.host.scrollTop = 0;
   }
@@ -102,6 +103,8 @@ export class VirtualGallery {
     this.frame = requestAnimationFrame(() => { this.frame = null; if (this.active) this.render(); });
   }
   clear() {
+    for (const timer of this.visibilityTimers.values()) clearTimeout(timer);
+    this.visibilityTimers.clear();
     this.finishAnimations();
     clearTimeout(this.measureTimer);
     if (this.frame !== null) cancelAnimationFrame(this.frame);
@@ -208,10 +211,10 @@ export class VirtualGallery {
       open.setAttribute('aria-label', `${image.title}${image.favorite ? '，已收藏' : ''}`);
       open.setAttribute('aria-current', String(image.id === this.selectedId));
       node.classList.toggle('selected', image.id === this.selectedId);
-      title.textContent = image.title;
+      title.textContent = image.deleted ? `${image.title} · 来源已删除` : image.title;
       if (this.sidebar) {
         star.hidden = !image.favorite;
-        node.querySelector('.thumbnail-date').textContent = image.deleted ? '已从 ChatGPT 移除' : image.createdAt ? new Intl.DateTimeFormat('zh-CN').format(image.createdAt) : '';
+        node.querySelector('.thumbnail-date').textContent = image.deleted ? '来源已删除' : image.createdAt ? new Intl.DateTimeFormat('zh-CN').format(image.createdAt) : '';
       } else {
         node.classList.toggle('is-favorite', Boolean(image.favorite));
         star.setAttribute('aria-label', image.favorite ? `取消收藏：${image.title}` : `收藏：${image.title}`);
@@ -221,7 +224,7 @@ export class VirtualGallery {
           hide.title = this.filter === 'hidden' ? '取消隐藏' : '隐藏图片';
           hide.setAttribute('aria-label', `${hide.title}：${image.title}`);
           hide.classList.toggle('restore-hidden', this.filter === 'hidden');
-          locate.hidden = this.filter !== 'favorites' || image.deleted;
+          locate.hidden = this.filter !== 'favorites' || (image.deleted && !image.localOriginal);
           locate.title = '在全部图片中定位'; locate.setAttribute('aria-label', `${locate.title}：${image.title}`);
         }
       }
@@ -235,6 +238,19 @@ export class VirtualGallery {
     }
     const screenReady = visible.filter(item => item.y + item.height >= top && item.y <= bottom)
       .every(item => { const record = this.nodes.get(item.id); return record.url && (!record.pending || record.pending.resource); });
+    if (!this.sidebar && this.onVisible) {
+      const screen = new Set(visible.filter(item => item.y + item.height > top && item.y < bottom).map(item => item.id));
+      for (const [id, timer] of this.visibilityTimers) if (!screen.has(id)) { clearTimeout(timer); this.visibilityTimers.delete(id); }
+      for (const id of screen) if (!this.notified.has(id) && !this.visibilityTimers.has(id)) {
+        this.visibilityTimers.set(id, setTimeout(() => {
+          this.visibilityTimers.delete(id);
+          const item = this.layout.byId.get(id), top = this.host.scrollTop;
+          if (document.hidden || !this.active || !item || item.y + item.height <= top || item.y >= top + this.host.clientHeight) return;
+          this.notified.add(id);
+          Promise.resolve(this.onVisible(id)).catch(() => { this.notified.delete(id); });
+        }, 300));
+      }
+    }
     this.prefetch(wanted, screenReady);
   }
   prefetch(mounted, allowStart) {

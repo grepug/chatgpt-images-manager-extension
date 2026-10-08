@@ -4,11 +4,11 @@ import { CacheRunner } from '../extension/cache-runner.js';
 import { mergeImages } from '../extension/core.js';
 import { evictionPlan } from '../extension/cache-policy.js';
 function harness(pages, initial = []) {
-  let clock = Date.UTC(2026, 9, 7), job, images = initial, period = '6months';
+  let clock = Date.UTC(2026, 9, 7), job, images = initial, mode = 'full', paused = false, demand = [];
   const assets = new Map(), calls = [], merges = [];
   const io = {
     now: () => ++clock, job: async () => structuredClone(job), save: async value => { job = structuredClone(value); },
-    verify: async () => {}, period: async () => period,
+    verify: async () => {}, config: async () => ({ cacheMode: mode, paused }), demand: async () => demand,
     page: async (_, scan) => { calls.push(scan.cursor); return pages[scan.cursor || 'head']; },
     conversation: async () => [], merge: async (_, incoming, complete) => { merges.push(complete); images = mergeImages(images, incoming.map(x => ({ ...x, account: 'a' })), complete); },
     images: async () => images, assets: async () => [...assets.values()],
@@ -16,7 +16,7 @@ function harness(pages, initial = []) {
     clean: async value => { for (const key of evictionPlan([...assets.values()], images, value, new Set(), clock)) assets.delete(key); },
     updated: async () => {}
   };
-  return { io, calls, assets, merges, job: () => job, images: () => images, period: value => { period = value; }, tick: amount => { clock += amount; } };
+  return { io, calls, assets, merges, job: () => job, images: () => images, mode: value => { mode = value; }, pause: value => { paused = value; }, demand: value => { demand = value; }, tick: amount => { clock += amount; } };
 }
 const recent = id => ({ id, createdAt: Date.UTC(2026, 9, 6) });
 const page = (images, cursor = null) => ({ images, conversations: [], cursor, itemCount: images.length, hasMore: null });
@@ -70,17 +70,28 @@ test('one failed image does not block caching the other images', async () => {
   assert.equal(h.assets.has('a:two:original'), true); assert.equal(h.assets.has('a:two:thumbnail'), true);
   assert.equal(Object.keys(h.job().failures).length, 2); assert.equal(h.job().completed, 1);
 });
-test('range changes clean old ordinary bytes without hiding image metadata', async () => {
+test('mode changes retain all ordinary originals and metadata', async () => {
   const h = harness({ head: page([recent('recent'), { id: 'month', createdAt: Date.UTC(2026, 8, 20) }]) });
   await new CacheRunner(h.io).run('a'); assert.equal(h.assets.size, 4);
-  h.period('1week'); await new CacheRunner(h.io).run('a', { retry: true });
-  assert.equal(h.assets.size, 2); assert.equal(h.images().length, 2); assert.equal(h.job().total, 1);
+  h.mode('demand'); await new CacheRunner(h.io).run('a', { retry: true });
+  assert.equal(h.assets.size, 4); assert.equal(h.images().length, 2); assert.equal(h.job().total, 2);
 });
 test('progress exposes the active asset before download and clears it after completion', async () => {
   const h = harness({ head: page([recent('recent')]) });
   const active = [];
   h.io.progress = async () => { active.push(h.job().activeAsset.kind); };
   await new CacheRunner(h.io).run('a');
-  assert.deepEqual(active, ['original', 'thumbnail']);
+  assert.deepEqual(active, ['thumbnail', 'original']);
   assert.equal(h.job().activeAsset, null);
+});
+test('manual pause and full-to-demand changes stop the next batch item and preserve completed bytes', async () => {
+  const h = harness({ head:page([recent('one'),recent('two')]) });
+  const download = h.io.asset;
+  h.io.asset = async (...args) => { await download(...args); h.pause(true); };
+  await new CacheRunner(h.io).run('a');
+  assert.equal(h.assets.size,1);
+  await new CacheRunner(h.io).run('a',{retry:true}); assert.equal(h.assets.size,1);
+  h.pause(false); h.mode('demand'); h.demand(['one']); h.io.asset = download;
+  await new CacheRunner(h.io).run('a');
+  assert.equal(h.assets.has('a:one:original'),true); assert.equal(h.assets.has('a:two:original'),false);
 });

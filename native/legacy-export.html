@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>旧存储导出 · ChatGPT Images Manager</title>
+<link rel="stylesheet" href="library.css"><link rel="stylesheet" href="legacy-export.css"></head>
+<body><main class="legacy-transfer">
+  <h1>旧存储导出</h1>
+  <p>复制阶段只读取旧 IndexedDB，不下载、刷新或改变收藏与隐藏。旧原图仅在核对成功并手动点击清理按钮后移除。</p>
+  <button id="export" class="primary-button">复制并核对旧存储</button>
+  <p id="result" role="status">等待检查旧存储</p>
+  <hr><p>在公司签名版本完成导入后，从“清理旧存储…”下载核对凭据，在这里选择它。</p>
+  <input id="receipt" type="file" accept="application/json">
+  <button id="clean" class="secondary-button" disabled>清理已核对的旧原图副本</button>
+</main><script src="legacy-export.js" type="module"></script><script src="legacy-cleanup.js" type="module"></script></body>
+</html>
