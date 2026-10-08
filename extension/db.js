@@ -38,8 +38,8 @@ export async function assetMetadata(account) {
   const thumbnails = (await legacy.assetMetadata(account)).filter(asset => asset.kind === 'thumbnail');
   return [...originals.filter(asset => !account || asset.account === account), ...thumbnails];
 }
-export async function getAsset(account, id, kind = 'original') {
-  return native && kind === 'original' ? nativeRead(`${account}:${id}:original`) : legacy.getAsset(account, id, kind);
+export async function getAsset(account, id, kind = 'original', options = {}) {
+  return native && kind === 'original' ? nativeRead(`${account}:${id}:original`, options) : legacy.getAsset(account, id, kind);
 }
 export async function getThumbnailAsset(account, id, box) {
   const cached = await legacy.getThumbnailAsset(account, id);

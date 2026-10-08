@@ -4,12 +4,15 @@ import { GRID_SIZES } from './masonry.js';
 import { VirtualGallery } from './virtual-gallery.js';
 import { cacheDisplay } from './cache-display.js';
 import { ThumbnailCache } from './thumbnail-cache.js';
+import { OriginalCache } from './original-cache.js';
 import { viewerDock } from './viewer-layout.js';
 
 const extension = globalThis.browser || globalThis.chrome;
 const preview = new URLSearchParams(location.search).get('preview') === '1' && !extension?.runtime?.id;
 const $ = id => document.getElementById(id);
-const mainImage = $('main-image'), viewport = $('viewport'), thumbnails = $('thumbnails');
+let mainImage = $('main-image');
+const viewport = $('viewport'), thumbnails = $('thumbnails');
+let originalLease = null;
 let account = null, online = false, images = [], filter = 'all', selectedId = null, selectedImage = null;
 let transform = { scale: 1, x: 0, y: 0 }, width = 0, height = 0;
 let viewMode = 'fit', sidebarHidden = true, chromeTimer;
@@ -45,6 +48,10 @@ const thumbnailCache = new ThumbnailCache({ readThumbnail: getThumbnailAsset, re
   persist: (targetAccount, id, data) => storeAsset(targetAccount, id, 'thumbnail', data.blob, {
     width: data.width, height: data.height, sourceWidth: data.sourceWidth, sourceHeight: data.sourceHeight, thumbnailVersion: data.thumbnailVersion
   }) });
+const originalCache = new OriginalCache({ read: (targetAccount, id, options) => getAsset(targetAccount, id, 'original', options), download: async (targetAccount, image) => {
+  const result = await rpc('asset', { account: targetAccount, id: image.id, kind: 'original' });
+  return (await fetch(result.dataURL)).blob();
+} });
 const gallery = new VirtualGallery({ host: $('grid-scroll'), canvas: $('grid-canvas'), loadImage: thumbnailURL,
   openImage: openViewer, favorite: toggleFavorite, hideImage: toggleHidden, locateImage: locateAll,
   onVisible: demandVisible,
@@ -141,18 +148,11 @@ function drain() {
     Promise.resolve().then(task.work).then(task.resolve, task.reject).finally(() => { queueRunning--; drain(); });
   }
 }
-async function objectURL(type, image, targetAccount = account) {
-  const cached = await getAsset(targetAccount, image.id, type);
-  if (cached) return URL.createObjectURL(cached);
-  const result = await rpc('asset', { account: targetAccount, id: image.id, kind: type });
-  const response = await fetch(result.dataURL);
-  return URL.createObjectURL(await response.blob());
-}
 function clearImageURLs() {
-  if (currentURL) URL.revokeObjectURL(currentURL);
-  currentURL = null;
-  mainImage.removeAttribute('src'); gallery.reset(); sidebarGallery.reset();
-  thumbnailCache.clear();
+  const placeholder = document.createElement('img'); placeholder.id = 'main-image'; placeholder.className = 'main-image'; placeholder.hidden = true;
+  mainImage.replaceWith(placeholder); mainImage = placeholder;
+  originalLease?.release(); originalLease = null; originalCache.clear(); currentURL = null;
+  gallery.reset(); sidebarGallery.reset(); thumbnailCache.clear();
 }
 function thumbnailURL(image, alive, box, priority, localOnly = false) {
   const targetAccount = account;
@@ -193,8 +193,7 @@ function openViewer(id) {
 }
 function returnToGrid() {
   loadSequence++; changeLayout('grid');
-  if (currentURL) URL.revokeObjectURL(currentURL);
-  currentURL = null; mainImage.removeAttribute('src'); mainImage.hidden = true; width = 0; height = 0;
+  mainImage.hidden = true; width = 0; height = 0;
   saveView(true)?.catch(() => {});
   rpc('view-hold', { account, id: null }).catch(() => {});
   $('grid-scroll').focus({ preventScroll: true });
@@ -258,33 +257,49 @@ async function select(id, restoredTransform = null) {
   const sequence = ++loadSequence, targetAccount = account;
   selectedId = id; selectedImage = { ...image }; width = 0; height = 0;
   $('edit-prompt').value = editDrafts.get(`${account}:${id}`) || ''; resizeEditPrompt();
-  mainImage.hidden = true; $('empty-state').hidden = true; $('image-error').hidden = true; $('image-loading').hidden = false;
-  viewport.classList.remove('has-image');
-  sidebarGallery.setImages(list(), id);
-  updateControls();
+  const lease = originalCache.acquire(targetAccount, image, { alive: () => sequence === loadSequence && targetAccount === account && layout === 'viewer' });
+  $('empty-state').hidden = true; $('image-error').hidden = true;
+  // A decoded hit is mounted synchronously in this click/key event: no spinner,
+  // no native transfer and no second decode before the next painted frame.
+  if (!lease.resource) { mainImage.hidden = true; $('image-loading').hidden = false; viewport.classList.remove('has-image'); }
+  sidebarGallery.setImages(list(), id); updateControls();
   try {
-    rpc('view-hold', { account: targetAccount, id }).catch(() => {});
-    const url = await objectURL('original', image, targetAccount);
-    const loaded = new Image(); loaded.src = url;
-    try { await loaded.decode(); } catch (error) { URL.revokeObjectURL(url); throw error; }
-    if (sequence !== loadSequence || targetAccount !== account) { URL.revokeObjectURL(url); return; }
-    if (currentURL) URL.revokeObjectURL(currentURL);
-    currentURL = url; mainImage.src = url; mainImage.alt = image.title;
-    width = loaded.naturalWidth; height = loaded.naturalHeight;
-    gallery.measure(id, width, height);
-    updateViewerLayout();
+    const resource = lease.resource || await lease.ready;
+    if (sequence !== loadSequence || targetAccount !== account || layout !== 'viewer') { lease.release(); return; }
+    if (!resource) throw new Error('原图加载已中断，请重试。');
+    const previousLease = originalLease; originalLease = lease;
+    if (mainImage !== resource.image) { mainImage.replaceWith(resource.image); mainImage = resource.image; }
+    mainImage.id = 'main-image'; mainImage.className = 'main-image'; mainImage.draggable = false; mainImage.alt = image.title;
+    currentURL = resource.url; width = resource.width; height = resource.height;
+    previousLease?.release();
+    gallery.measure(id, width, height); updateViewerLayout();
     transform = restoredTransform || { scale: fitScale(width, height, viewport.clientWidth, viewport.clientHeight), x: 0, y: 0 };
     if (!restoredTransform) viewMode = 'fit';
     mainImage.hidden = false; $('image-loading').hidden = true; viewport.classList.add('has-image');
     applyTransform(); updateControls(); saveView();
-    // Preload adjacent originals without changing the current image or transform.
-    for (const neighbor of adjacentImages(list(), id)) schedule(() => targetAccount === account ? rpc('asset', { account: targetAccount, id: neighbor.id, kind: 'original' }) : null).catch(() => {});
+    // Prepare the nearest cached originals after the current frame. Preserve
+    // existing neighbor downloads, but the new decoded preload is local only.
+    requestAnimationFrame(() => {
+      if (sequence !== loadSequence || targetAccount !== account || layout !== 'viewer') return;
+      const index = list().findIndex(value => value.id === id);
+      for (const neighbor of [list()[index - 1], list()[index + 1]].filter(Boolean)) {
+        originalCache.preload(targetAccount, neighbor,
+          () => targetAccount === account && sequence === loadSequence && layout === 'viewer').catch(() => {});
+      }
+      for (const neighbor of adjacentImages(list(), id)) {
+        if (neighbor.localOriginal || neighbor.saved || originalCache.hasFile(targetAccount, neighbor.id)) continue;
+        schedule(() => targetAccount === account && !originalCache.hasFile(targetAccount, neighbor.id)
+          ? rpc('asset', { account: targetAccount, id: neighbor.id, kind: 'original' }) : null).catch(() => {});
+      }
+    });
   } catch (error) {
+    lease.release();
     if (sequence !== loadSequence || targetAccount !== account) return;
     $('image-loading').hidden = true; $('image-error-text').textContent = error.message; $('image-error').hidden = false;
     updateControls();
   }
 }
+
 function next(delta) {
   const id = moveSelection(list(), selectedId, delta, current()?.createdAt);
   if (id && id !== selectedId) {
@@ -304,8 +319,7 @@ async function toggleFavorite(id = selectedId) {
 }
 function clearSelection() {
   loadSequence++; selectedId = null; selectedImage = null; width = height = 0;
-  if (currentURL) URL.revokeObjectURL(currentURL);
-  currentURL = null; mainImage.removeAttribute('src'); mainImage.hidden = true;
+  currentURL = null; mainImage.hidden = true;
   $('image-loading').hidden = $('image-error').hidden = true;
   $('empty-state').hidden = false; viewport.classList.remove('has-image');
   $('image-title').textContent = '你的图片，随时浏览。'; $('image-meta').textContent = '';
@@ -668,7 +682,7 @@ $('describe-edits').addEventListener('submit', async event => {
 });
 document.addEventListener('pointermove', revealControls, { passive: true });
 document.addEventListener('keydown', revealControls); revealControls();
-window.addEventListener('pagehide', () => saveView(true));
+window.addEventListener('pagehide', () => { saveView(true); clearImageURLs(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); else saveView(true); });
 if (extension?.runtime?.onMessage) extension.runtime.onMessage.addListener(message => {
   if (message?.type !== 'library-event' || message.account !== account) return;

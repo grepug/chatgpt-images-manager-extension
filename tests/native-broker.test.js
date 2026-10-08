@@ -28,6 +28,18 @@ test('website content cannot access the native storage broker', () => {
     { id: 'test-extension', url: 'https://chatgpt.com/images' }, value => { response = value; }), false);
   assert.equal(response.ok, false);
 });
+test('foreground original reads overtake queued work without reordering writes or allowing concurrency',async()=>{
+  const original=browser.runtime.sendNativeMessage, calls=[];let release, started;
+  const began=new Promise(resolve=>{started=resolve;});
+  browser.runtime.sendNativeMessage=async(_app,message)=>{calls.push(message.key);active++;peak=Math.max(peak,active);if(message.key==='held')await new Promise(resolve=>{release=resolve;started();});active--;return {ok:true,result:message.key};};
+  try {
+    const held=nativeRequest('get',{key:'held'});await began;
+    const first=nativeRequest('put',{key:'write-a'}), last=nativeRequest('put',{key:'write-b'});
+    const read=nativeRequest('asset-read',{key:'foreground',foreground:true});
+    release();await Promise.all([held,first,last,read]);
+    assert.deepEqual(calls,['held','foreground','write-a','write-b']);assert.equal(peak,1);
+  }finally{browser.runtime.sendNativeMessage=original;}
+});
 test('an interrupted library merge retries before newer state, but allocation is never repeated', async () => {
   const original = browser.runtime.sendNativeMessage, calls = [];
   let attempts = 0;
@@ -44,4 +56,20 @@ test('an interrupted library merge retries before newer state, but allocation is
     await assert.rejects(nativeRequest('asset-begin'), /SFErrorDomain error 3/);
     assert.equal(calls.filter(op => op === 'asset-begin').length, 1);
   } finally { browser.runtime.sendNativeMessage = original; }
+});
+test('native recovery remains a barrier before foreground reads and ordered writes',async()=>{
+  const original=browser.runtime.sendNativeMessage,calls=[];let failed;
+  const began=new Promise(resolve=>{failed=resolve;});let attempts=0;
+  browser.runtime.sendNativeMessage=async(_app,message)=>{
+    active++;peak=Math.max(peak,active);calls.push(message.op);
+    try{if(message.op==='merge'&&++attempts===1){failed();throw Error('SFErrorDomain error 3');}return {ok:true,result:true};}
+    finally{active--;}
+  };
+  try{
+    const merge=nativeRequest('merge'),favorite=nativeRequest('favorite');await began;
+    await new Promise(resolve=>setTimeout(resolve,20));
+    const read=nativeRequest('asset-read',{foreground:true});
+    await new Promise(resolve=>setTimeout(resolve,20));assert.deepEqual(calls,['merge']);
+    await Promise.all([merge,favorite,read]);assert.deepEqual(calls,['merge','merge','asset-read','favorite']);assert.equal(peak,1);
+  }finally{browser.runtime.sendNativeMessage=original;}
 });

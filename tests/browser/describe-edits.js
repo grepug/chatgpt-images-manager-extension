@@ -11,6 +11,7 @@
   if (!document.body.classList.contains('grid-layout')) $('return-grid').click();
   $('grid-filter-all').click(); $('grid-scroll').scrollTop = 0; await wait(100);
   await until(() => document.querySelector('.grid-open'));
+  const firstId = document.querySelector('.grid-open').closest('.grid-card').dataset.id;
   document.querySelector('.grid-open').click(); await until(() => !$('main-image').hidden && !$('toggle-edit').disabled);
   assert($('describe-edits').hidden, 'Composer starts collapsed'); $('toggle-edit').click();
   const first = $('image-title').textContent;
@@ -38,7 +39,7 @@
   const beforeSubmit = viewState();
   window.addEventListener('preview-edit', event => submitted = event.detail, { once: true });
   $('describe-edits').requestSubmit(); await until(() => submitted && $('submit-edit').disabled && !$('edit-prompt').value);
-  assert(submitted.prompt === '保留第一张的草稿' && submitted.id === images[0].id, 'Submit uses exact image and draft');
+  assert(submitted.prompt === '保留第一张的草稿' && submitted.id === firstId, 'Submit uses exact image and draft');
   assert(viewState() === beforeSubmit, 'Submit preserves source image, zoom, layout and scroll positions');
   assert($('describe-edits').hidden, 'Successful submit collapses editor');
   const toast = $('status').getBoundingClientRect();

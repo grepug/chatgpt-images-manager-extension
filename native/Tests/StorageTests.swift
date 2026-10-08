@@ -27,6 +27,29 @@ final class StorageTests: XCTestCase {
         _ = try s.handle(commit); _ = try s.handle(commit)
         XCTAssertEqual((try s.handle(["op":"verify-assets"]) as! [String:Int])["verified"],1)
     }
+    func testOriginalReadCombinesMetadataAndBoundedFrames() throws {
+        let s = try store("read-frames"), bytes = Data(repeating:61,count:5242889)
+        let token = (try s.handle(["op":"asset-begin","size":bytes.count]) as! [String:Any])["token"] as! String
+        for offset in stride(from:0,to:bytes.count,by:262144) {
+            _ = try s.handle(["op":"asset-chunk","token":token,"offset":offset,"data":bytes.subdata(in:offset..<min(offset+262144,bytes.count)).base64EncodedString()])
+        }
+        let digest = NativeStore.hash(bytes)
+        _ = try s.handle(["op":"asset-commit","token":token,"info":["key":"account:large:original","account":"account","id":"large","kind":"original","mime":"image/png","size":bytes.count],"digest":digest])
+        var restored = Data(), frames = 0
+        while restored.count < bytes.count {
+            let offset = restored.count
+            let chunk = try s.handle(["op":"asset-read","key":"account:large:original","offset":offset,"length":4194304]) as! [String:Any]
+            let data = Data(base64Encoded:chunk["data"] as! String)!
+            XCTAssertLessThanOrEqual(data.count,4194304); XCTAssertEqual(chunk["offset"] as? Int,offset)
+            XCTAssertEqual(chunk["digest"] as? String,digest); XCTAssertEqual(chunk["mime"] as? String,"image/png")
+            restored.append(data); frames += 1
+        }
+        XCTAssertEqual(restored,bytes); XCTAssertEqual(frames,2)
+        XCTAssertThrowsError(try s.handle(["op":"asset-read","key":"account:large:original","offset":0,"length":4194305]))
+        XCTAssertThrowsError(try s.handle(["op":"asset-read","key":"account:large:original","offset":0,"length":0]))
+        let legacy = try s.handle(["op":"asset-read","key":"account:large:original","offset":0]) as! [String:Any]
+        XCTAssertEqual(Data(base64Encoded:legacy["data"] as! String)?.count,262144)
+    }
     func testFailedNewWriteKeepsExistingOriginalAndFavorite() throws {
         let s = try store("favorite")
         try s.put("images",["key":"account:picture","account":"account","id":"picture","favorite":true])

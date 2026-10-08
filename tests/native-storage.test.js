@@ -23,19 +23,33 @@ test('originals transfer in bounded ordered chunks, commit only with an exact di
     if(msg.op==='asset-commit') {
       assert.equal(msg.digest,await digest(bytes)); saved={...msg.info,digest:msg.digest};return {ok:true,result:saved};
     }
-    if(msg.op==='asset-read') return {ok:true,result:{data:Buffer.from(bytes.slice(msg.offset,msg.offset+262144)).toString('base64'),offset:msg.offset,size:bytes.length}};
+    if(msg.op==='asset-read') return {ok:true,result:{...saved,data:Buffer.from(bytes.slice(msg.offset,msg.offset+msg.length)).toString('base64'),offset:msg.offset,size:bytes.length}};
   };
   await nativeWrite({key:'a:id:original'},new Blob([bytes],{type:'image/png'}),{probe:true});
   assert.equal(ops.filter(op=>op==='asset-chunk').length,4); assert.equal(ops.at(-1),'asset-commit');
+  const beforeRead=ops.length;
   const blob=await nativeRead('a:id:original',{probe:true}); assert.deepEqual(new Uint8Array(await blob.arrayBuffer()),bytes);
+  assert.deepEqual(ops.slice(beforeRead),['asset-read']);
   const before=ops.length; await nativeWrite({key:'a:id:original'},blob,{probe:true});assert.deepEqual(ops.slice(before),['asset-info']);
 });
 test('truncated and corrupt native reads never report a complete image',async()=>{
   const bytes=new Uint8Array([1,2,3]); const info={size:3,digest:await digest(bytes),mime:'image/png'};
-  call = async msg=>({ok:true,result:msg.op==='asset-info'?info:{data:'',offset:msg.offset,size:3}});
+  call = async msg=>({ok:true,result:{...info,data:'',offset:msg.offset}});
   await assert.rejects(nativeRead('a:id:original'),/不完整/);
-  call = async msg=>({ok:true,result:msg.op==='asset-info'?info:{data:'AQIE',offset:msg.offset,size:3}});
+  call = async msg=>({ok:true,result:{...info,data:'AQIE',offset:msg.offset}});
   await assert.rejects(nativeRead('a:id:original'),/校验失败/);
+});
+test('large original frames remain ordered, bounded and tied to the same digest',async()=>{
+  const bytes=new Uint8Array(5*1024*1024+9); bytes.fill(61);
+  const info={size:bytes.length,digest:await digest(bytes),mime:'image/png'}, offsets=[];
+  call=async msg=>{assert.equal(msg.op,'asset-read');assert.equal(msg.length,4*1024*1024);offsets.push(msg.offset);return {ok:true,result:{...info,offset:msg.offset,data:Buffer.from(bytes.subarray(msg.offset,msg.offset+msg.length)).toString('base64')}};};
+  assert.deepEqual(new Uint8Array(await (await nativeRead('a:large:original')).arrayBuffer()),bytes);
+  assert.deepEqual(offsets,[0,4*1024*1024]);
+  call=async msg=>({ok:true,result:{...info,digest:msg.offset?'0'.repeat(64):info.digest,offset:msg.offset,data:Buffer.from(bytes.subarray(msg.offset,msg.offset+msg.length)).toString('base64')}});
+  await assert.rejects(nativeRead('a:large:original'),/不完整/);
+  call=async()=>({ok:true,result:{...info,size:2,offset:0,data:'AQID'}});
+  await assert.rejects(nativeRead('a:oversized:original'),/不完整/);
+  call=async()=>({ok:true,result:null});assert.equal(await nativeRead('a:missing:original'),null);
 });
 test('quota failures preserve their code and do not attempt any writes',async()=>{
   const ops=[];call=async msg=>{ops.push(msg.op);return msg.op==='asset-info'?{ok:true,result:null}:{ok:false,code:'QUOTA',error:'full'};};

@@ -1,5 +1,23 @@
 export const NATIVE_APP = 'local.chatgpt.ChatGPT-Images-Manager';
-let broker = false, pending = Promise.resolve();
+let broker = false, active = false;
+const requests = [];
+function enqueueNative(extension, message) {
+  return new Promise((resolve, reject) => {
+    requests.push({ extension, message, resolve, reject });
+    drainNative();
+  });
+}
+function drainNative() {
+  if (active || !requests.length) return;
+  // Only foreground immutable original reads may overtake the queue. Writes
+  // and retries retain their ordering on Safari's single native connection.
+  const foreground = requests.findIndex(task => task.message.op === 'asset-read' && task.message.foreground === true);
+  const task = requests.splice(foreground < 0 ? 0 : foreground, 1)[0]; active = true;
+  sendNative(task.extension, task.message).then(task.resolve, task.reject).finally(() => {
+    // Give Safari a macrotask boundary to finish the native request context.
+    setTimeout(() => { active = false; drainNative(); }, 8);
+  });
+}
 export function installNativeBroker() {
   broker = true;
   const extension = globalThis.browser || globalThis.chrome;
@@ -25,8 +43,7 @@ export async function nativeRequest(op, args = {}) {
   } else {
     // Safari can interrupt overlapping native requests. Share one ordered
     // connection across library pages and the background, including retries.
-    const task = pending.then(() => sendNative(extension, message));
-    pending = task.catch(() => {}); response = await task;
+    response = await enqueueNative(extension, message);
   }
   if (!response?.ok) throw Object.assign(new Error(response?.error || '无法连接 App 持久存储。'), { code: response?.code || 'NATIVE_STORAGE' });
   return response.result;
@@ -60,22 +77,34 @@ export async function nativeReceipt() {
   } while (after);
   return receipt;
 }
-export async function nativeRead(key, { probe = false } = {}) {
-  const info = await nativeRequest('asset-info', { key, probe });
-  if (!info) return null;
-  return readChunks(info, 'asset-read', { key, probe });
+export async function nativeRead(key, { probe = false, foreground = () => false, alive = () => true } = {}) {
+  // The first frame carries metadata too. Most originals fit in one message;
+  // keep larger files bounded without an extra metadata round trip.
+  const args = { key, probe, length: 4 * 1024 * 1024 };
+  const first = await nativeRequest('asset-read', { ...args, offset: 0, foreground: foreground() });
+  if (!first) return null;
+  return readChunks(first, 'asset-read', args, first, { foreground, alive });
 }
 export async function nativeThumbnail(key, box, { probe = false } = {}) {
   const info = await nativeRequest('thumbnail-info', { key, box, probe });
   if (!info) return null;
   return { ...info, blob: await readChunks(info, 'thumbnail-read', { token: info.token, probe }) };
 }
-async function readChunks(info, op, args) {
+function decodeBase64(data) {
+  if (typeof Uint8Array.fromBase64 === 'function') return Uint8Array.fromBase64(data);
+  const binary = atob(data), bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+async function readChunks(info, op, args, first = null, { foreground = () => false, alive = () => true } = {}) {
+  if (!Number.isSafeInteger(info.size) || info.size < 0 || info.size > 268435456 || !/^[a-f0-9]{64}$/.test(info.digest)) throw new Error('原图读取不完整。');
   const chunks = [];
   for (let offset = 0; offset < info.size;) {
-    const result = await nativeRequest(op, { ...args, offset });
-    if (!result?.data || result.offset !== offset || result.size !== info.size) throw new Error('原图读取不完整。');
-    const binary = atob(result.data), bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    if (!alive()) return null;
+    const result = first && offset === 0 ? first : await nativeRequest(op, { ...args, offset, foreground: foreground() });
+    if (!result?.data || result.offset !== offset || result.size !== info.size || result.digest && result.digest !== info.digest) throw new Error('原图读取不完整。');
+    const bytes = decodeBase64(result.data);
+    if (!bytes.length || bytes.length > (args.length || 262144) || offset + bytes.length > info.size) throw new Error('原图读取不完整。');
     chunks.push(bytes); offset += bytes.length;
   }
   const blob = new Blob(chunks, { type: info.mime });

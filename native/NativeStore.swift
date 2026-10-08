@@ -247,8 +247,10 @@ final class NativeStore {
         case "asset-read":
             guard let info = try get("assetInfo",key), let size = info["size"] as? Int,
                 let offset = request["offset"] as? Int, offset >= 0, offset <= size else { return NSNull() }
+            let length = request["length"] as? Int ?? 262144
+            guard length > 0, length <= 4194304 else { throw StoreFailure.invalid }
             let file = try FileHandle(forReadingFrom: path(key, info["digest"] as? String ?? "")); defer { try? file.close() }
-            try file.seek(toOffset: UInt64(offset)); let data = try file.read(upToCount: 262144) ?? Data()
+            try file.seek(toOffset: UInt64(offset)); let data = try file.read(upToCount: length) ?? Data()
             return ["data": data.base64EncodedString(), "offset":offset, "size":size, "mime":info["mime"] ?? "", "digest":info["digest"] ?? ""]
         case "asset-begin":
             guard let size = request["size"] as? Int, size >= 0, size <= 268435456 else { throw StoreFailure.invalid }
