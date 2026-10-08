@@ -30,7 +30,10 @@
   const composer = $('describe-edits').getBoundingClientRect(), zoom = $('zoom-controls').getBoundingClientRect();
   assert(composer.width <= 480 && composer.height < 70, 'Composer stays compact');
   const imageArea = $('viewport').getBoundingClientRect();
-  assert(composer.bottom <= imageArea.top, 'Composer is outside image viewport');
+  const beforeEditorClose = $('main-image').style.transform;
+  $('toggle-edit').click(); await wait(80);
+  assert($('main-image').style.transform === beforeEditorClose, 'Closing floating editor never moves image');
+  $('toggle-edit').click();
   $('viewport').dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true })); await wait(100);
   let submitted;
   const viewState = () => JSON.stringify({ title: $('image-title').textContent, position: $('image-position').textContent,
@@ -44,7 +47,8 @@
   assert($('describe-edits').hidden, 'Successful submit collapses editor');
   const toast = $('status').getBoundingClientRect();
   const area = $('viewport').getBoundingClientRect();
-  assert(toast.bottom <= area.top, 'Toast stays outside image viewport');
+  assert(!$('status-text').hidden && getComputedStyle($('status-text')).clipPath !== 'inset(50%)', 'Toast directly displays text');
+  assert(Math.abs(toast.left + toast.width / 2 - innerWidth / 2) < 1, 'Toast is horizontally centered');
   assert(toast.width <= 420, 'Toast remains narrow');
-  return JSON.stringify({ imageDrafts: true, nativeRequestIdentity: true, sourceViewPreserved: true, focusAndIdle: true, composer: { width: composer.width, height: composer.height }, toastOutsideImage: true });
+  return JSON.stringify({ imageDrafts: true, nativeRequestIdentity: true, sourceViewPreserved: true, focusAndIdle: true, composer: { width: composer.width, height: composer.height }, toastDirectAndCentered: true });
 })()

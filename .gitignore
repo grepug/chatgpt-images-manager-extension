@@ -4,3 +4,5 @@ artifacts/
 .DS_Store
 .local-signing.json
 native/.build/
+/extension/viewer-menu.js
+/extension/THIRD_PARTY_NOTICES.txt

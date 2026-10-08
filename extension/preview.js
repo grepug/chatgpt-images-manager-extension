@@ -16,7 +16,7 @@ export function fixtureSVG(index) {
 export async function seedPreview() {
   if ((await getImages(account)).length) return;
   const titles = ['山间的清晨', '一束暖光', '海岸与远山', '傍晚的花园', '夏日的森林', '窗边的日落', '远处的山脉', '安静的午后', '天空的颜色', '柔和的光影', '长长的夏天', '雨后的街道'];
-  await mergeLibrary(account, titles.map((title, index) => ({ id: `fixture-${index}`, title, createdAt: Date.UTC(2026, 9, 7) - index * 86400000, conversationId: 'preview-conversation', ...fixtureDimensions(index) })), true);
+  await mergeLibrary(account, titles.map((title, index) => ({ id: `fixture-${index}`, title, createdAt: Date.UTC(2026, 9, 7) - index * 86400000, conversationId: 'preview-conversation', fileId: `preview-file-${index}`, ...fixtureDimensions(index) })), true);
   for (let index = 0; index < titles.length; index++) {
     const blob = new Blob([fixtureSVG(index)], { type: 'image/svg+xml' });
     await storeAsset(account, `fixture-${index}`, 'original', blob);

@@ -5,7 +5,6 @@ import { VirtualGallery } from './virtual-gallery.js';
 import { cacheDisplay } from './cache-display.js';
 import { ThumbnailCache } from './thumbnail-cache.js';
 import { OriginalCache } from './original-cache.js';
-import { viewerTopLayout } from './viewer-layout.js';
 
 const extension = globalThis.browser || globalThis.chrome;
 const preview = new URLSearchParams(location.search).get('preview') === '1' && !extension?.runtime?.id;
@@ -16,7 +15,7 @@ let originalLease = null;
 let account = null, online = false, images = [], filter = 'all', selectedId = null, selectedImage = null;
 let transform = { scale: 1, x: 0, y: 0 }, width = 0, height = 0;
 let viewMode = 'fit', sidebarHidden = true, chromeTimer;
-let viewerPanel = null, viewerMenuParent = false, viewerLayoutFrame = 0;
+let viewerPanel = null;
 let layout = 'grid', gridSize = 'medium';
 let hiddenIds = new Set(), filterStates = {}, listHidden;
 const hiddenPending = new Set(), promptCache = new Map();
@@ -71,74 +70,39 @@ function status(text) {
   $('notice-toggle').title = text || '查看提示';
   $('notice-toggle').setAttribute('aria-label', text || '查看提示');
   $('status').hidden = !text;
-  if (!text && viewerPanel === 'notice') closeViewerPanel(false);
-  if (text) revealControls();
 }
+// Menus are owned by the open-source component; this controller only owns
+// the editor and standalone content dialogs.
 function closeViewerPanel(focus = true) {
-  const previous = viewerPanel; viewerPanel = null; viewerMenuParent = false;
-  for (const id of ['more', 'edit', 'notice', 'zoom', 'details', 'library']) $(`${id}-panel`).hidden = true;
-  for (const id of ['help-dialog', 'settings-dialog', 'prompt-dialog']) {
-    const dialog = $(id); if (dialog.open) dialog.close();
-    if (dialog.parentElement === $('viewer-panel')) document.body.append(dialog);
-  }
-  $('viewer-panel').hidden = true;
-  for (const id of ['toggle-edit', 'toggle-more', 'toggle-zoom']) $(id).setAttribute('aria-expanded', 'false');
+  const previous = viewerPanel;
+  viewerPanel = null;
+  $('edit-panel').hidden = $('describe-edits').hidden = true;
   document.body.classList.remove('editing-image');
-  document.body.classList.remove('viewer-menu-open');
-  $('describe-edits').hidden = true;
-  requestViewerLayout();
-  if (focus && previous) {
-    let trigger = $(previous === 'edit' ? 'toggle-edit' : previous === 'zoom' ? 'toggle-zoom' : previous === 'notice' ? 'notice-toggle' : 'toggle-more');
-    if (!trigger.getClientRects().length) trigger = $('toggle-more');
-    trigger.focus({ preventScroll: true });
+  $('toggle-edit').setAttribute('aria-expanded', 'false');
+  window.viewerMenus?.close();
+  for (const id of ['help-dialog', 'settings-dialog', 'prompt-dialog']) {
+    const node = $(id);
+    if (node.open && !node.closest('.component-menu')) node.close();
   }
+  if (focus && previous === 'edit') $('toggle-edit').focus({ preventScroll: true });
 }
-function openViewerPanel(kind, fromMenu = false) {
-  closeViewerPanel(false); viewerPanel = kind; $('viewer-panel').hidden = kind === 'edit';
-  viewerMenuParent = fromMenu && kind !== 'more';
-  document.body.classList.toggle('editing-image', kind === 'edit');
-  document.body.classList.toggle('viewer-menu-open', kind !== 'edit');
-  if (kind.endsWith('-dialog')) {
-    $('viewer-panel').append($(kind)); $(kind).show();
-  } else $(`${kind}-panel`).hidden = false;
-  $('toggle-edit').setAttribute('aria-expanded', String(kind === 'edit'));
-  $('toggle-more').setAttribute('aria-expanded', String(kind === 'more' || viewerMenuParent));
-  $('toggle-zoom').setAttribute('aria-expanded', String(kind === 'zoom'));
-  updateControls(); resizeEditPrompt(); requestViewerLayout(); revealControls();
-  if (kind === 'edit') $('edit-prompt').focus({ preventScroll: true });
-  else requestAnimationFrame(() => {
-    if (viewerPanel === kind) panelButtons()[0]?.focus({ preventScroll: true });
-  });
-  requestAnimationFrame(() => { if (viewerPanel === kind) $('viewer-panel').scrollTop = 0; });
+function openViewerPanel(kind) {
+  if (kind !== 'edit') { showDialog(kind); return; }
+  window.viewerMenus?.close();
+  viewerPanel = 'edit';
+  $('edit-panel').hidden = false;
+  document.body.classList.add('editing-image');
+  $('toggle-edit').setAttribute('aria-expanded', 'true');
+  updateControls(); resizeEditPrompt();
+  $('edit-prompt').focus({ preventScroll: true });
 }
 function showDialog(id) {
-  if (layout === 'viewer') openViewerPanel(id); else $(id).showModal();
+  viewerPanel = id;
+  const node = $(id);
+  if (layout === 'viewer') { node.classList.add('viewer-dialog'); node.show(); }
+  else { node.classList.remove('viewer-dialog'); node.showModal(); }
 }
-function requestViewerLayout() {
-  if (viewerLayoutFrame) return;
-  viewerLayoutFrame = requestAnimationFrame(() => { viewerLayoutFrame = 0; updateViewerLayout(); });
-}
-function updateViewerLayout() {
-  if (layout !== 'viewer') return;
-  const panel = $('viewer-panel');
-  $('more-panel').hidden = viewerPanel !== 'more' && !(viewerMenuParent && document.body.clientWidth >= 680);
-  for (const button of document.querySelectorAll('[data-viewer-menu][aria-haspopup]')) {
-    button.setAttribute('aria-expanded', String(button.dataset.viewerMenu === viewerPanel));
-  }
-  const active = [...panel.children].filter(node => !node.hidden && (node.tagName !== 'DIALOG' || node.open));
-  const wantedHeight = active.length ? Math.max(...active.map(node => node.scrollHeight)) + 12 : 0;
-  const geometry = viewerTopLayout({ height: document.body.clientHeight, railHeight: $('controls-rail').offsetHeight, panelHeight: wantedHeight });
-  panel.style.setProperty('--panel-height', `${viewerPanel === 'edit' ? 0 : geometry.panelHeight}px`);
-  let trigger = $(viewerPanel === 'zoom' ? 'toggle-zoom' : viewerPanel === 'notice' ? 'notice-toggle' : 'toggle-more');
-  if (!trigger.getClientRects().length) trigger = $('toggle-more');
-  const triggerRect = trigger.getBoundingClientRect();
-  panel.style.setProperty('--menu-right', `${Math.max(8, document.body.clientWidth - triggerRect.right)}px`);
-}
-
-function panelButtons() {
-  const active = $(viewerPanel?.endsWith('-dialog') ? viewerPanel : `${viewerPanel}-panel`);
-  return [...(active?.querySelectorAll('button,input,select,textarea') || [])].filter(node => !node.disabled && node.getClientRects().length);
-}
+function requestViewerLayout() { window.viewerMenus?.layout(); }
 
 function displayDate(time) { return time ? new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(time) : ''; }
 function list() {
@@ -249,13 +213,17 @@ function updateControls() {
     $('image-title').textContent = image.title;
     $('image-meta').textContent = [displayDate(image.createdAt), width && `${width} × ${height}`, image.deleted && '来源已删除'].filter(Boolean).join(' · ');
   }
+  $('floating-title').textContent = image?.title || '';
+  $('floating-meta').textContent = image ? $('image-meta').textContent : '';
+  document.querySelector('.preview-title').hidden = !image;
 }
 function applyTransform() {
   if (!width) return;
   transform = clampTransform(transform, width, height, viewport.clientWidth, viewport.clientHeight);
   mainImage.style.transform = `translate(-50%, -50%) translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
   $('actual-size').textContent = `${Math.round(transform.scale * 100)}%`;
-  $('zoom-percentage').textContent = $('actual-size').textContent;
+  const percentage = $('zoom-percentage');
+  if (percentage) percentage.textContent = $('actual-size').textContent;
 }
 function fit() {
   if (!width) return;
@@ -294,7 +262,7 @@ async function select(id, restoredTransform = null) {
     mainImage.id = 'main-image'; mainImage.className = 'main-image'; mainImage.draggable = false; mainImage.alt = image.title;
     currentURL = resource.url; width = resource.width; height = resource.height;
     previousLease?.release();
-    gallery.measure(id, width, height); updateViewerLayout();
+    gallery.measure(id, width, height); requestViewerLayout();
     transform = restoredTransform || { scale: fitScale(width, height, viewport.clientWidth, viewport.clientHeight), x: 0, y: 0 };
     if (!restoredTransform) viewMode = 'fit';
     mainImage.hidden = false; $('image-loading').hidden = true; viewport.classList.add('has-image');
@@ -575,24 +543,11 @@ $('grid-settings').addEventListener('click', () => $('settings').click());
 $('grid-help').addEventListener('click', () => $('help').click());
 $('grid-connect').addEventListener('click', () => $('connect').click());
 $('toggle-edit').addEventListener('click', () => viewerPanel === 'edit' ? closeViewerPanel() : openViewerPanel('edit'));
-$('toggle-more').addEventListener('click', () => viewerPanel && viewerPanel !== 'edit' && viewerPanel !== 'zoom' && viewerPanel !== 'notice' ? closeViewerPanel() : openViewerPanel('more'));
-$('toggle-zoom').addEventListener('click', () => viewerPanel === 'zoom' ? closeViewerPanel() : openViewerPanel('zoom'));
-$('menu-favorite').addEventListener('click', () => { toggleFavorite(); closeViewerPanel(); });
-for (const button of document.querySelectorAll('[data-viewer-menu]')) {
-  if (button.dataset.viewerMenu !== 'more') button.setAttribute('aria-haspopup', 'menu');
-  button.addEventListener('click', () => openViewerPanel(button.dataset.viewerMenu, true));
-}
-for (const id of ['hide-image', 'locate-all', 'copy-prompt', 'conversation', 'download', 'viewer-refresh', 'fit', 'actual-size']) {
-  $(id).addEventListener('click', () => { if (viewerPanel && !viewerPanel.endsWith('-dialog')) closeViewerPanel(false); });
-}
-document.addEventListener('pointerdown', event => {
-  if (viewerPanel && viewerPanel !== 'edit' && !$('viewer-controls').contains(event.target)) closeViewerPanel(false);
-});
-$('notice-toggle').addEventListener('click', () => { if (layout === 'viewer') viewerPanel === 'notice' ? closeViewerPanel() : openViewerPanel('notice'); });
+$('menu-favorite').addEventListener('click', () => toggleFavorite());
 for (const button of document.querySelectorAll('[data-close-viewer-panel]')) button.addEventListener('click', () => closeViewerPanel());
-for (const id of ['help-dialog', 'settings-dialog', 'prompt-dialog']) $(id).addEventListener('close', () => { if (viewerPanel === id && !$(id).open) closeViewerPanel(); });
-$('viewer-settings').addEventListener('click', () => $('settings').click());
-$('viewer-help').addEventListener('click', () => $('help').click());
+for (const id of ['help-dialog', 'settings-dialog', 'prompt-dialog']) $(id).addEventListener('close', () => {
+  if (viewerPanel === id) viewerPanel = null;
+});
 $('viewer-refresh').addEventListener('click', refresh);
 $('edit-prompt').addEventListener('focus', revealControls);
 $('edit-prompt').addEventListener('blur', revealControls);
@@ -642,20 +597,7 @@ $('download').addEventListener('click', async () => {
   anchor.click();
 });
 document.addEventListener('keydown', event => {
-  if (viewerPanel && viewerPanel !== 'edit' && !viewerPanel.endsWith('-dialog')) {
-    const buttons = panelButtons(), index = buttons.indexOf(document.activeElement);
-    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
-        : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
-      buttons[nextIndex]?.focus({ preventScroll: false }); return;
-    }
-    if (event.key === 'ArrowRight' && document.activeElement.dataset.viewerMenu) {
-      event.preventDefault(); document.activeElement.click(); return;
-    }
-    if (event.key === 'ArrowLeft' && viewerPanel !== 'more') { event.preventDefault(); openViewerPanel('more'); return; }
-    if (event.key.startsWith('Arrow')) { event.preventDefault(); return; }
-  }
+  if (window.viewerMenus?.isOpen() || event.defaultPrevented) return;
   if (event.key === 'Escape' && viewerPanel) { event.preventDefault(); closeViewerPanel(); return; }
   if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest('input,textarea,select,[contenteditable]') || $('help-dialog').open || $('settings-dialog').open || $('prompt-dialog').open) return;
   if (layout === 'grid') {
@@ -664,7 +606,11 @@ document.addEventListener('keydown', event => {
     return;
   }
   const actions = { ArrowLeft: () => next(-1), ArrowRight: () => next(1), f: () => toggleFavorite(), F: () => toggleFavorite(), '0': fit, '1': () => zoom(1), Escape: returnToGrid };
-  if (actions[event.key]) { event.preventDefault(); if (!event.repeat || event.key.startsWith('Arrow')) actions[event.key](); }
+  if (actions[event.key]) {
+    event.preventDefault();
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') hideControls(true);
+    if (!event.repeat || event.key.startsWith('Arrow')) actions[event.key]();
+  }
 });
 viewport.addEventListener('wheel', event => {
   if (!width || event.target.closest('button')) return;
@@ -691,13 +637,23 @@ new ResizeObserver(() => { if (width && layout === 'viewer') {
   if (viewMode === 'fit') transform = { scale: fitScale(width, height, viewport.clientWidth, viewport.clientHeight), x: 0, y: 0 };
   applyTransform(); saveView();
 } }).observe(viewport);
-function revealControls() {
-  document.body.classList.remove('controls-idle'); clearTimeout(chromeTimer);
-  chromeTimer = setTimeout(() => {
-    document.body.classList.add('controls-idle');
-    if (viewerPanel === 'edit' && !editJob && !$('edit-prompt').value && !$('edit-panel').contains(document.activeElement)) closeViewerPanel(false);
-  }, 2200);
+let lastMousePosition = null;
+function hideControls(keyboard = false) {
+  clearTimeout(chromeTimer);
+  document.body.classList.add('controls-idle');
+  document.body.classList.toggle('keyboard-browsing', keyboard);
+  if (viewerPanel === 'edit' && !editJob && !$('edit-prompt').value && !$('edit-panel').contains(document.activeElement)) closeViewerPanel(false);
 }
+function revealControls(event) {
+  if (event?.type !== 'pointermove' || (event.pointerType && event.pointerType !== 'mouse')) return;
+  const position = `${event.clientX}:${event.clientY}`;
+  if (position === lastMousePosition) return;
+  lastMousePosition = position;
+  document.body.classList.remove('controls-idle', 'keyboard-browsing');
+  clearTimeout(chromeTimer);
+  chromeTimer = setTimeout(() => hideControls(), 2000);
+}
+
 function resizeEditPrompt() {
   $('edit-prompt').style.height = '24px';
 }
@@ -729,7 +685,7 @@ $('describe-edits').addEventListener('submit', async event => {
   finally { if (editJob === job) editJob = null; $('submit-edit').classList.remove('submitting'); updateControls(); }
 });
 document.addEventListener('pointermove', revealControls, { passive: true });
-document.addEventListener('keydown', revealControls); revealControls();
+document.body.classList.add('controls-idle');
 window.addEventListener('pagehide', () => { saveView(true); clearImageURLs(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); else saveView(true); });
 if (extension?.runtime?.onMessage) extension.runtime.onMessage.addListener(message => {
@@ -747,6 +703,13 @@ if (extension?.runtime?.onMessage) extension.runtime.onMessage.addListener(messa
   } else if (message.event === 'cache-progress') updateStorage().catch(() => {});
   else if (message.event === 'sync-error' || message.event === 'favorite-error') status(message.error);
 });
+window.viewerMenuBridge = {
+  action(id) { $(id)?.click(); },
+  prepare(id) { if (id === 'settings-dialog') updateStorage().catch(error => status(error.message)); },
+  closeEditor() { if (viewerPanel === 'edit') closeViewerPanel(false); },
+};
+window.dispatchEvent(new Event('viewer-menu-ready'));
+
 if (preview) {
   await (await import('./preview.js')).seedPreview();
   window.addEventListener('preview-library-event', event => {
