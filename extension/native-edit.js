@@ -37,6 +37,27 @@ export async function nativeDescribeEdit(input) {
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${userId}:${accountId || ''}`));
       const account = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
       if (account !== input.account) throw new Error('ChatGPT 账号已切换，请刷新图片库。');
+      const native = require('no'), composer = require('Ow'), submit = require('RW7').d, route = require('jA').c;
+      // The website shifted these exports together. Check the constructor's
+      // contract and its paired state before invoking any mutable operation.
+      const bindings = [
+        { create: native.hb, saved: native.j, localIds: native.k },
+        { create: native.ib, saved: native.k, localIds: native.l }
+      ].filter(binding => {
+        if (typeof binding.create !== 'function' || !binding.saved || !binding.localIds) return false;
+        const source = binding.create.toString().replace(/\s/g, '');
+        if (binding.create.length !== 1 || !source.includes('arguments.length>1') ||
+            !source.includes('arguments[1]') || !source.includes('.get(') || !source.includes('||') || !/,[$\w]+;?}$/.test(source)) return false;
+        try { return Array.isArray(scope.get(binding.localIds)); } catch { return false; }
+      });
+      if (bindings.length !== 1 || typeof composer.P !== 'function' || typeof route !== 'function' ||
+          typeof submit !== 'function' || !submit.toString().includes('sourceConversationId') ||
+          !submit.toString().includes('isSubmissionCurrent') || route('local-test') !== '/c/local-test') {
+        throw new Error('官网新会话接口已更新，暂时无法提交 Describe edits；草稿已保留。');
+      }
+      const binding = bindings[0];
+      const model = scope.get(composer.s, scope.get(require('ezq').d, JSON.stringify([accountId, userId])));
+      if (!model?.slug) return { ok: false, ready: false, error: '官网图片模型尚未就绪，请稍后重试。' };
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 45000);
       try {
@@ -55,24 +76,24 @@ export async function nativeDescribeEdit(input) {
             require('ccw').b(node.message, { isActiveTurn: false, isStreaming: false }))
           .filter(image => image.status === 'completed' && require('iq').c(image.src || '') === input.image.fileId);
         if (candidates.length !== 1) throw new Error('无法准确找到原图，请打开原聊天确认图片仍然存在。');
-        if (input.dryRun) return { ok: true, verified: true };
-        const native = require('no'), composer = require('Ow');
-        const target = native.ib(scope);
-        composer.P(scope, target, scope.get(composer.s, scope.get(require('ezq').d, JSON.stringify([accountId, userId]))));
+        if (input.dryRun) return { ok: true, verified: true, submissionReady: true };
+        const target = binding.create(scope);
+        if (typeof target !== 'string' || !/^(?:local-chatgpt:)?[\w-]+$/.test(target)) throw new Error('官网没有创建有效的新会话，草稿已保留。');
         let accepted = false;
         try {
+          composer.P(scope, target, model);
           dispatched = true;
-          accepted = await require('RW7').d(scope, {
+          accepted = await submit(scope, {
             beforeRequest: assertCurrent, conversationId: target, image: candidates[0],
             isSubmissionCurrent: () => !controller.signal.aborted && scope.get(identity.d) === accountId && scope.get(identity.i) === userId,
             isTemporaryChat: false, request: { prompt: input.prompt.trim(), attribution: { imageSource: 'generated', editEntryPoint: 'images' } },
             signal: controller.signal, sourceConversationId: conversationId
           });
           if (!accepted) throw new Error('官网未接受编辑指令，草稿已保留。');
-          await window.__reactRouterDataRouter.navigate(require('jA').c(target));
+          await window.__reactRouterDataRouter.navigate(route(target));
           return { ok: true, submitted: true };
         } finally {
-          if (!accepted && !scope.get(native.k, target)) scope.set(native.l, values => values.filter(value => value !== target));
+          if (!accepted && !scope.get(binding.saved, target)) scope.set(binding.localIds, values => values.filter(value => value !== target));
         }
       } finally { clearTimeout(timeout); }
     } catch (error) {
