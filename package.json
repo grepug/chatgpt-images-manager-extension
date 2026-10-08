@@ -1,12 +1,13 @@
 {
   "name": "chatgpt-images-manager-extension",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build:ui": "node scripts/build-ui.mjs",
     "test:viewer": "node tests/browser/viewer-menu.mjs",
     "test:grid": "node tests/browser/grid-selection.mjs",
+    "test:archive": "node tests/browser/chat-archive.mjs",
     "test": "node --test tests/*.test.js",
     "check": "node scripts/check.mjs",
     "preview": "node scripts/preview.mjs",

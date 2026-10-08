@@ -8,9 +8,9 @@ const completion = transaction => new Promise((resolve, reject) => { transaction
 
 export function database() {
   if (!opening) opening = new Promise((resolve, reject) => {
-    const operation = indexedDB.open(DB_NAME, 4);
+    const operation = indexedDB.open(DB_NAME, 5);
     operation.onupgradeneeded = event => {
-      for (const store of ['accounts', 'images', 'assets', 'views', 'assetInfo', 'jobs', 'hidden', 'settings', 'migration', 'demands']) {
+      for (const store of ['accounts', 'images', 'assets', 'views', 'assetInfo', 'jobs', 'hidden', 'settings', 'migration', 'demands', 'conversations']) {
         if (!operation.result.objectStoreNames.contains(store)) operation.result.createObjectStore(store, { keyPath: 'key' });
       }
       if (event.oldVersion >= 2) return;
@@ -42,6 +42,26 @@ export async function putValue(store, value) {
 export async function allValues(store) {
   const db = await database();
   return request(db.transaction(store).objectStore(store).getAll());
+}
+export async function storeChatStates(account, rows) {
+  const db = await database(), tx = db.transaction(['conversations','images'], 'readwrite'), done = completion(tx);
+  done.catch(() => {});
+  try {
+    const chats = tx.objectStore('conversations'), saved = [];
+    for (const row of rows) {
+      const key = account + ':' + row.id, previous = await request(chats.get(key));
+      const value = (previous?.checkedAt || 0) > row.checkedAt ? previous : { ...row, account, key };
+      chats.put(value); saved.push(value);
+    }
+    const archived = new Set(saved.filter(row => row.archived === true).map(row => row.id));
+    if (archived.size) {
+      const images = tx.objectStore('images');
+      for (const image of await request(images.getAll())) {
+        if (image.account === account && image.deleted && archived.has(image.conversationId)) images.put({ ...image, deleted: false });
+      }
+    }
+    await done; return saved;
+  } catch (error) { try { tx.abort(); } catch {} await done.catch(() => {}); throw error; }
 }
 export async function getHiddenIds(account) {
   return new Set((await getValue('hidden', account))?.ids || []);
@@ -76,12 +96,17 @@ export async function updateValue(storeName, key, changes) {
 
 export async function mergeLibrary(account, incoming, complete = false) {
   const db = await database();
-  const transaction = db.transaction('images', 'readwrite');
+  const transaction = db.transaction(['images', 'conversations'], 'readwrite');
   const done = completion(transaction);
   const store = transaction.objectStore('images');
   // Read and merge in one transaction so a concurrent favorite toggle cannot be overwritten.
   const existing = await request(store.getAll());
   const records = mergeImages(existing.filter(image => image.account === account), incoming, complete);
+  if (complete) {
+    const archived = new Set((await request(transaction.objectStore('conversations').getAll()))
+      .filter(row => row.account === account && row.archived === true).map(row => row.id));
+    for (const image of records) if (archived.has(image.conversationId)) image.deleted = false;
+  }
   for (const image of records) store.put({ ...image, account, key: `${account}:${image.id}` });
   await done;
   return records;

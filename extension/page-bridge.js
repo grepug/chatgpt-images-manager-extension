@@ -19,17 +19,33 @@
     const id = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     return { id, name: value.user.name || 'ChatGPT', token: value.accessToken, accountId };
   }
-  async function api(path, auth, signal) {
+  async function api(path, auth, signal, options = {}) {
     const url = new URL(path, location.origin);
     if (url.origin !== location.origin || !url.pathname.startsWith('/backend-api/')) throw failure('无效的数据地址', 'DATA');
     const headers = { Accept: 'application/json', Authorization: `Bearer ${auth.token}` };
     if (auth.accountId) headers['ChatGPT-Account-ID'] = auth.accountId;
-    const response = await originalFetch(url, { headers, credentials: 'include', cache: 'no-store', signal });
+    if (options.body) headers['Content-Type'] = 'application/json';
+    const response = await originalFetch(url, { headers, credentials: 'include', cache: 'no-store', signal,
+      method: options.method || 'GET', body: options.body && JSON.stringify(options.body) });
     if (response.status === 401 || response.status === 403) throw failure('ChatGPT 登录已失效或需要重新打开页面验证。', 'AUTH');
     if (response.status === 429) throw failure('ChatGPT 请求较多，稍后会自动重试。', 'RATE_LIMIT');
+    if (response.status === 404) throw failure('原聊天不存在或无法访问。', 'NOT_FOUND');
     if (response.status === 400 && url.pathname.endsWith('/my/recent/image_gen')) throw failure('图片库分页已失效，稍后将从最新图片重新连接。', 'CURSOR');
     if (!response.ok) throw failure(`ChatGPT 暂时无法返回图片（${response.status}）。`);
+    if (response.status === 204) return {};
     try { return await response.json(); } catch { throw failure('ChatGPT 返回了无法识别的数据，请打开官方图片库后重试。', 'DATA'); }
+  }
+  function checkedChat(value, id, checkedAt) {
+    if (!value || value.id !== id || typeof value.is_archived !== 'boolean') throw failure('未能确认聊天归档状态。', 'DATA');
+    return { id, archived: value.is_archived, checkedAt };
+  }
+  async function chatStates(ids, auth, signal) {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 10 || ids.some(id => typeof id !== 'string' || !/^[\w-]{1,128}$/.test(id)))
+      throw failure('无效的聊天请求', 'DATA');
+    const checkedAt = Date.now();
+    const rows = await api('/backend-api/conversations/batch', auth, signal, { method: 'POST', body: { conversation_ids: [...new Set(ids)] } });
+    if (!Array.isArray(rows)) throw failure('聊天状态接口已变化。', 'DATA');
+    return rows.filter(row => ids.includes(row.id)).map(row => checkedChat(row, row.id, checkedAt));
   }
   async function imageBlob(args, auth, signal) {
     let url = adapter.imageURL(args.kind === 'thumbnail' ? args.image.thumbnailUrl || args.image.sourceUrl : args.image.sourceUrl);
@@ -95,11 +111,21 @@
       const value = await api(`/backend-api/conversation/${encodeURIComponent(id)}`, auth, signal);
       return adapter.imagePrompt(value, args.image);
     }
+    if (command === 'chat-status') return chatStates(args.ids, auth, signal);
+    if (command === 'archive-chat') {
+      const [before] = await chatStates([args.id], auth, signal);
+      if (!before) throw failure('原聊天不存在或无法访问。', 'NOT_FOUND');
+      if (before.archived) return { state: before, skipped: true };
+      await api('/backend-api/conversation/' + encodeURIComponent(args.id), auth, signal, { method: 'PATCH', body: { is_archived: true } });
+      const [after] = await chatStates([args.id], auth, signal);
+      if (!after?.archived) throw failure('归档请求已发出，但未能确认结果；重试前会重新核验。', 'UNCERTAIN');
+      return { state: after, skipped: false };
+    }
     if (command === 'asset') return imageBlob(args, auth, signal);
     throw failure('不支持的请求', 'DATA');
   }
   globalThis.ImageLibrarySource = { async request(command, args = {}) {
-    if (!['identity', 'page', 'conversation', 'asset', 'prompt'].includes(command)) return { ok: false, error: '不支持的请求' };
+    if (!['identity', 'page', 'conversation', 'asset', 'prompt', 'chat-status', 'archive-chat'].includes(command)) return { ok: false, error: '不支持的请求' };
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
     let response;

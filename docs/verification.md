@@ -182,3 +182,14 @@ Safari 版本经 XcodeBuildMCP CLI 构建并通过严格签名校验。在真实
 - 合成预览改为 PNG 测试原图，修复 Chromium 无法用 `createImageBitmap` 解码原 SVG 测试数据导致的空白缩略图；此路径仅在显式 localhost 预览启用。
 
 截图保存在本地忽略目录：`artifacts/grid-multiselect-wide.png`、`artifacts/grid-multiselect-narrow.png`、`artifacts/safari-v0.9-multiselect.png`，未发布真实账号截图。
+
+## v0.10.0 归档所在聊天（2026-10-09）
+
+- JavaScript 116 项测试通过。新增 9 项归档测试覆盖官网批量元数据读取、唯一 true-only PATCH、归档前后核验、已归档跳过、账号不匹配、请求结果丢失后重试先读状态、去重、停止、限流、可见优先、并发状态读取与旧结果拒绝、持久事务和图片索引保留。
+- XcodeBuildMCP CLI 原生 Swift Package 13 项测试通过。新增聊天状态持久化、账号隔离、旧时间戳拒绝、已归档图片缺席不误判来源删除、恢复既有索引及原图字节保留；IndexedDB schema 5 的迁移测试确认旧资源和查看状态仍在。
+- `npm run test:archive` 的 30 项独立 localhost 检查通过：多图同聊天去重、确认与取消、未选图片同步、状态筛选、跳过、停止、失败保留选择与重试、外部状态变化、单张菜单、大图详情、空筛选清除旧图、重新打开筛选查看器恢复原图片，以及 320 / 390 / 580 / 800 / 1280 px 布局。状态更新前后卡片节点、图片节点和图片 URL 相同，没有重新加载原图或缩略图。
+- 多选回归 51 项、查看器菜单回归 48 项通过。原图传输、解码缓存、Describe edits 和闲置显隐未更改；这轮未重新测量 Safari 图片读取性能。
+- 真实 Safari 只读核对官网发布模块的归档请求为 PATCH `/conversation/{conversation_id}`，body 仅 `is_archived: true`；批量状态读取为 POST `/conversations/batch`，请求字段 `conversation_ids`，返回严格布尔 `is_archived`。读取图库记录里的同名字段未被当作聊天归档状态。
+- Safari v0.10.0 经 XcodeBuildMCP CLI 构建、启动和严格签名校验。真实图库显示已归档、未归档与未能确认标记；已归档和未归档筛选可用。多选两张同聊天图片，确认窗口正确显示 2 张图片涉及 1 个聊天，并说明同聊天未选图片也会更新。取消后退出多选，恢复所有聊天筛选。
+
+本轮实际归档写入尚未执行，不将合成请求测试或只读接口检查视为真实写入成功。真实账号图片、聊天标识和截图不提交到公开仓库；界面截图仅存本机忽略目录 `artifacts/safari-v0.10-chat-status.png`。

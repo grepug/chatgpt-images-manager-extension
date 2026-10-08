@@ -18,6 +18,15 @@
 @media(max-width:1100px){.grid-tool-modes{width:228px}.selection-secondary{display:none!important}}
 @media(max-width:580px){.grid-tools{width:100%;justify-content:space-between}.grid-tool-modes{width:190px}.grid-tools-normal,.grid-selection-tools{gap:2px}.grid-tools-normal .icon-button{width:30px}.selection-text{padding:0 5px}#grid-selection-count{font-size:11px}}
 .grid-sizes button{padding:0 11px;height:27px;border-radius:6px}.grid-toolbar .icon-button{width:32px;height:32px}
+.chat-filter{height:32px;max-width:130px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--secondary);font:inherit;font-size:12px;padding:0 6px;cursor:pointer}
+.sidebar-chat-filter{margin:0 12px 8px;max-width:calc(100% - 24px)}
+.chat-archive-badge{position:absolute;top:9px;left:9px;z-index:1;max-width:calc(100% - 55px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:3px 6px;border-radius:6px;background:#0009;color:#fffd;font-size:10px;line-height:16px;pointer-events:none;transition:color .15s,background .15s}
+.chat-archive-badge[data-state=archived]{background:#183a2ee8;color:#d5f0e4}.chat-archive-badge[data-state=unknown]{color:#fffa}
+.virtual-thumbnail .chat-archive-badge{top:7px;left:7px;font-size:9px;padding:1px 5px}
+.archive-confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+@media(min-width:581px) and (max-width:950px){.grid-toolbar{flex-wrap:wrap}.grid-brand{display:none}.grid-tools{width:100%;justify-content:space-between}.grid-tool-modes{width:228px}}
+@media(max-width:580px){.grid-filters{width:100%;align-items:center}.grid-filters button{padding:0 6px}.chat-filter{margin-left:auto;max-width:116px;font-size:11px}}
+@media(prefers-reduced-motion:reduce){.chat-archive-badge{transition:none}}
 .grid-scroll{flex:1;min-height:0;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-width:thin;outline:none}
 .grid-canvas,.thumbnail-canvas{position:relative;width:100%;contain:layout style}
 .grid-card{position:absolute;left:0;top:0;border-radius:12px;overflow:hidden;background:var(--hover);contain:layout style paint}

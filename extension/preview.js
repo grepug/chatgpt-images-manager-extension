@@ -1,5 +1,5 @@
 // Only used by the explicit localhost preview; never enabled on an extension origin.
-import { mergeLibrary, storeAsset, setFavorite, setHidden, setBulkFlags, getImages, getAsset, putValue, trimCache, assetMetadata, storageUsage } from './db.js';
+import { mergeLibrary, storeAsset, setFavorite, setHidden, setBulkFlags, getImages, getAsset, getValue, putValue, trimCache, assetMetadata, storageUsage } from './db.js';
 import { cacheMode, cacheProgress } from './cache-policy.js';
 const account = 'preview-account';
 let held = null;
@@ -73,6 +73,19 @@ export async function previewRPC(type, args) {
   if (type === 'bulk-flags') {
     const result = await setBulkFlags(account, args.ids, args.kind, args.value);
     window.dispatchEvent(new Event('preview-library-event')); return result;
+  }
+  if (type === 'chat-status') {
+    return Promise.all(args.ids.map(async id => ({ ...(await getValue('conversations', account + ':' + id)),
+      id, account, key: account + ':' + id, archived: Boolean((await getValue('conversations', account + ':' + id))?.archived), checkedAt: Date.now() })));
+  }
+  if (type === 'archive-chat') {
+    window.dispatchEvent(new CustomEvent('preview-archive-chat', { detail: args }));
+    await new Promise(resolve => setTimeout(resolve, 150));
+    if (localStorage.getItem('previewArchiveFail') === args.id) throw Object.assign(new Error('测试归档请求失败'), { code: 'NETWORK' });
+    const previous = await getValue('conversations', account + ':' + args.id);
+    const state = { key: account + ':' + args.id, account, id: args.id, archived: true, checkedAt: Date.now() };
+    await putValue('conversations', state);
+    return { state, skipped: previous?.archived === true };
   }
   if (type === 'prompt') return { text: `生成测试图片 ${args.id}，保留完整的用户原文。` };
   if (type === 'describe-edit') {
