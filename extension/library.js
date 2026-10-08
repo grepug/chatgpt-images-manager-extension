@@ -614,7 +614,9 @@ async function restoreAccount(identity) {
     filter = ['all', 'favorites', 'hidden'].includes(saved?.filter) ? saved.filter : 'all';
     filterStates = saved?.filterStates || { [chatScope()]: { grid: saved?.gridState || {}, sidebar: { scrollTop: saved?.scrollTop, anchor: saved?.sidebarAnchor } } };
     gridSize = Object.hasOwn(GRID_SIZES, saved?.gridSize) ? saved.gridSize : 'medium';
-    if (chatFilter === 'any' && !filterStates[chatScope()] && filterStates[filter]) filterStates[chatScope()] = filterStates[filter];
+    for (const scope of ['all','favorites','hidden']) {
+      if (!filterStates[scope + ':any'] && filterStates[scope]) filterStates[scope + ':any'] = filterStates[scope];
+    }
     updateGridSize();
     renderList(false);
     const restoredId = list().some(image => image.id === saved?.selectedId) ? saved.selectedId : list()[0]?.id;
