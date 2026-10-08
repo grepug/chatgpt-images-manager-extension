@@ -74,60 +74,87 @@
     </footer>
   </aside>
   <div id="status" class="status" role="status" hidden><button id="notice-toggle" title="查看提示" aria-label="查看提示"><svg class="icon"><use href="#icon-info"/></svg><span id="status-text"></span></button></div>
-  <main id="viewer" class="viewer" data-dock="bottom">
+  <main id="viewer" class="viewer">
     <div id="viewport" class="viewport" tabindex="0" aria-label="图片查看器">
       <img id="main-image" class="main-image" alt="" draggable="false" hidden>
       <div id="empty-state" class="empty-state"><div class="empty-icon"><svg class="icon"><use href="#icon-images"/></svg></div><h3 id="empty-title">正在连接图片库</h3><p id="empty-text">你的图片与收藏保存在这个浏览器中。</p><button id="connect" class="primary-button"><svg class="icon small"><use href="#icon-external"/></svg>打开 ChatGPT 图片库</button></div>
       <div id="image-error" class="image-error" hidden><p id="image-error-text"></p><button id="retry" class="secondary-button">重试加载</button></div>
       <div id="image-loading" class="image-loading" hidden><span class="spinner"></span><span>加载图片…</span></div>
     </div>
-    <aside id="viewer-controls" class="viewer-controls" aria-label="查看器控件">
-      <div id="viewer-panel" class="viewer-panel" hidden>
-        <section id="more-panel" class="viewer-sheet" aria-label="更多图片操作" hidden>
-          <div class="sheet-heading"><span>更多</span><button class="icon-button" data-close-viewer-panel aria-label="关闭更多">×</button></div>
+
+  </main>
+  <aside id="viewer-controls" class="viewer-controls" aria-label="查看器控件">
+    <div id="controls-rail" class="controls-rail">
+      <nav class="primary-controls" aria-label="常用图片操作">
+        <div class="control-group navigation-group" aria-label="图库导航">
+          <button id="return-grid" class="icon-button" aria-label="返回 grid 图库" title="返回 grid 图库" ><svg class="icon"><use href="#icon-grid"/></svg></button>
+          <button id="toggle-sidebar" class="icon-button" aria-label="展开缩略图栏" title="展开缩略图栏" aria-expanded="false"><svg class="icon"><use href="#icon-images"/></svg></button>
+        </div>
+        <div class="control-group paging-group" aria-label="切换图片">
+          <button id="previous" class="icon-button" aria-label="上一张图片（←）" title="上一张图片（←）" disabled><svg class="icon"><use href="#icon-left"/></svg></button>
+          <button id="next" class="icon-button" aria-label="下一张图片（→）" title="下一张图片（→）" disabled><svg class="icon"><use href="#icon-right"/></svg></button>
+          <span id="notice-slot" class="notice-slot"></span>
+        </div>
+        <div class="image-actions">
+          <div class="control-group action-group" aria-label="图片操作">
+            <button id="toggle-zoom" class="zoom-trigger" aria-label="缩放选项" aria-haspopup="menu" aria-expanded="false" title="缩放选项" disabled><span id="zoom-percentage">100%</span><span class="menu-chevron">⌄</span></button>
+            <button id="favorite" class="icon-button" aria-label="收藏图片（F）" title="收藏图片（F）" disabled><svg class="icon"><use href="#icon-star"/></svg></button>
+            <button id="toggle-edit" class="icon-button" aria-label="展开 Describe edits" title="展开 Describe edits" aria-expanded="false" disabled><svg class="icon"><use href="#icon-edit"/></svg></button>
+            <section id="edit-panel" class="inline-edit" aria-label="Describe edits 编辑区" hidden>
+              <form id="describe-edits" class="edit-composer" aria-label="Describe edits" hidden>
+                <textarea id="edit-prompt" rows="1" placeholder="Describe edits" aria-label="Describe edits" spellcheck="false"></textarea>
+                <button id="submit-edit" class="icon-button" type="submit" aria-label="提交 Describe edits，在新窗口中打开" title="提交 Describe edits，在新窗口中打开" disabled><svg class="icon"><use href="#icon-send"/></svg></button>
+                <button class="icon-button edit-collapse" type="button" data-close-viewer-panel aria-label="收起 Describe edits" title="收起 Describe edits">×</button>
+              </form>
+            </section>
+            <button id="toggle-more" class="icon-button" aria-label="更多图片操作" title="更多图片操作" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="#icon-more"/></svg></button>
+          </div>
+        </div>
+      </nav>
+    </div>
+    <div id="viewer-panel" class="viewer-panel" hidden>
+      <section id="more-panel" class="viewer-menu" role="menu" aria-label="更多图片操作" hidden>
+        <button id="menu-favorite" role="menuitem" class="compact-only"><svg class="icon"><use href="#icon-star"/></svg><span>收藏图片</span><kbd>F</kbd></button>
+        <button id="menu-zoom" role="menuitem" class="compact-only" data-viewer-menu="zoom"><svg class="icon"><use href="#icon-fit"/></svg>缩放<span class="submenu-arrow">›</span></button>
+        <button id="hide-image" role="menuitem" disabled><svg class="icon"><use href="#icon-hide"/></svg><span id="hide-image-label">隐藏图片</span></button>
+        <button id="locate-all" role="menuitem" hidden><svg class="icon"><use href="#icon-locate"/></svg>在全部图片中定位</button>
+        <button id="copy-prompt" role="menuitem" disabled><svg class="icon"><use href="#icon-copy"/></svg>复制 prompt</button>
+        <button id="conversation" role="menuitem" disabled><svg class="icon"><use href="#icon-chat"/></svg>打开原聊天</button>
+        <button id="download" role="menuitem" disabled><svg class="icon"><use href="#icon-download"/></svg>下载图片</button>
+        <div class="menu-separator" role="separator"></div>
+        <button id="menu-details" role="menuitem" data-viewer-menu="details"><svg class="icon"><use href="#icon-info"/></svg>图片详情<span class="submenu-arrow">›</span></button>
+        <button id="menu-library" role="menuitem" data-viewer-menu="library"><svg class="icon"><use href="#icon-images"/></svg>图片库<span class="submenu-arrow">›</span></button>
+      </section>
+      <section id="details-panel" class="viewer-sheet" aria-label="图片详情" hidden>
+        <div class="sheet-heading"><button class="menu-back" role="menuitem" data-viewer-menu="more">‹ 更多</button><span>图片详情</span><button class="icon-button" data-close-viewer-panel aria-label="关闭图片详情">×</button></div>
           <div class="image-info"><h2 id="image-title">你的图片，随时浏览。</h2><p id="image-meta">快捷切换 · 本地缓存 · 收藏</p><span id="image-position" class="image-position"></span><span id="favorite-status" class="favorite-status" aria-live="polite"></span></div>
+
+      </section>
+      <section id="zoom-panel" class="viewer-menu" role="menu" aria-label="缩放选项" hidden>
+        <button class="menu-back" role="menuitem" data-viewer-menu="more">‹ 更多</button>
           <div id="zoom-controls" class="zoom-controls">
             <button id="zoom-out" class="icon-button" aria-label="缩小图片" title="缩小图片" disabled><svg class="icon small"><use href="#icon-minus"/></svg></button>
             <button id="actual-size" class="zoom-value" aria-label="原始尺寸" title="原始尺寸（1）" disabled>100%</button>
             <button id="zoom-in" class="icon-button" aria-label="放大图片" title="放大图片" disabled><svg class="icon small"><use href="#icon-plus"/></svg></button>
             <button id="fit" class="icon-button" aria-label="适应窗口" title="适应窗口（0）" disabled><svg class="icon small"><use href="#icon-fit"/></svg></button>
           </div>
-          <div class="sheet-actions">
-            <button id="hide-image" disabled><svg class="icon"><use href="#icon-hide"/></svg><span id="hide-image-label">隐藏图片</span></button>
-            <button id="locate-all" hidden><svg class="icon"><use href="#icon-locate"/></svg>在全部图片中定位</button>
-            <button id="copy-prompt" disabled><svg class="icon"><use href="#icon-copy"/></svg>复制 prompt</button>
-            <button id="conversation" disabled><svg class="icon"><use href="#icon-chat"/></svg>打开原聊天</button>
-            <button id="download" disabled><svg class="icon"><use href="#icon-download"/></svg>下载图片</button>
-            <button id="viewer-refresh"><svg class="icon"><use href="#icon-refresh"/></svg>刷新图片库</button>
-            <button id="viewer-settings"><svg class="icon"><use href="#icon-settings"/></svg>缓存设置</button>
-            <button id="viewer-help"><svg class="icon"><use href="#icon-info"/></svg>快捷键说明</button>
-          </div>
-          <p id="viewer-cache-progress" class="sheet-note"></p>
-        </section>
-        <section id="edit-panel" class="viewer-sheet" aria-label="Describe edits 编辑区" hidden>
-          <div class="sheet-heading"><span>Describe edits</span><button class="icon-button" data-close-viewer-panel aria-label="收起 Describe edits">×</button></div>
-          <form id="describe-edits" class="edit-composer" aria-label="Describe edits" hidden>
-            <textarea id="edit-prompt" rows="1" placeholder="Describe edits" aria-label="Describe edits" spellcheck="false"></textarea>
-            <button id="submit-edit" class="icon-button" type="submit" aria-label="提交 Describe edits，在新窗口中打开" title="提交 Describe edits，在新窗口中打开" disabled><svg class="icon"><use href="#icon-send"/></svg></button>
-          </form>
-        </section>
+
+        <p class="sheet-note">触控板捏合缩放 · 0 适应窗口 · 1 原始尺寸</p>
+      </section>
+      <section id="library-panel" class="viewer-menu" role="menu" aria-label="图片库" hidden>
+        <button class="menu-back" role="menuitem" data-viewer-menu="more">‹ 更多</button>
+        <div class="menu-separator" role="separator"></div>
+        <button id="viewer-refresh" role="menuitem" ><svg class="icon"><use href="#icon-refresh"/></svg>刷新图片库</button>
+        <button id="viewer-settings" role="menuitem" ><svg class="icon"><use href="#icon-settings"/></svg>缓存设置<span class="submenu-arrow">›</span></button>
+        <button id="viewer-help" role="menuitem" ><svg class="icon"><use href="#icon-info"/></svg>快捷键说明<span class="submenu-arrow">›</span></button>
+        <p id="viewer-cache-progress" class="sheet-note"></p>
+      </section>
         <section id="notice-panel" class="viewer-sheet" aria-label="提示详情" hidden>
           <div class="sheet-heading"><span>提示</span><button class="icon-button" data-close-viewer-panel aria-label="关闭提示">×</button></div><p id="notice-text" class="sheet-note"></p>
         </section>
       </div>
-      <div id="controls-rail" class="controls-rail">
-        <nav class="primary-controls" aria-label="常用图片操作">
-      <button id="return-grid" class="icon-button" aria-label="返回 grid 图库" title="返回 grid 图库（Esc）"><svg class="icon"><use href="#icon-grid"/></svg></button>
-      <button id="toggle-sidebar" class="icon-button" aria-label="收起缩略图栏" aria-expanded="true" title="收起缩略图栏"><svg class="icon"><use href="#icon-images"/></svg></button>
-      <button id="previous" class="icon-button" aria-label="上一张图片" title="上一张图片（←）" disabled><svg class="icon"><use href="#icon-left"/></svg></button>
-      <button id="next" class="icon-button" aria-label="下一张图片" title="下一张图片（→）" disabled><svg class="icon"><use href="#icon-right"/></svg></button>
-        <button id="favorite" class="icon-button" aria-label="收藏图片" title="收藏图片（F）" disabled><svg class="icon"><use href="#icon-star"/></svg></button>
-      <button id="toggle-edit" class="icon-button" aria-label="展开 Describe edits" aria-expanded="false" title="Describe edits" disabled><svg class="icon"><use href="#icon-edit"/></svg></button>
-      <button id="toggle-more" class="icon-button" aria-label="更多图片操作" aria-expanded="false" title="更多"><svg class="icon"><use href="#icon-more"/></svg></button>
-        </nav>
-      </div>
-    </aside>
-  </main>
+
+  </aside>
   <dialog id="help-dialog"><form method="dialog"><div class="dialog-title"><h2>快捷键与手势</h2><button class="icon-button" aria-label="关闭快捷键说明">×</button></div><dl class="shortcut-list"><div><dt>上一张 / 下一张</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div><div><dt>收藏 / 取消收藏</dt><dd><kbd>F</kbd></dd></div><div><dt>适应窗口</dt><dd><kbd>0</kbd></dd></div><div><dt>原始尺寸</dt><dd><kbd>1</kbd></dd></div><div><dt>缩放图片</dt><dd>触控板捏合</dd></div><div><dt>平移图片</dt><dd>双指滚动 / 拖拽</dd></div></dl><p class="dialog-note">默认全量缓存。已缓存原图持续保留，按需缓存只下载浏览需要的图片。</p></form></dialog>
   <dialog id="settings-dialog"><form method="dialog"><div class="dialog-title"><h2>缓存设置</h2><button class="icon-button" aria-label="关闭缓存设置">×</button></div></form>
     <label class="setting-row" for="cache-mode"><span>缓存模式</span><select id="cache-mode"><option value="demand">按需缓存</option><option value="full" selected>全量缓存</option></select></label>

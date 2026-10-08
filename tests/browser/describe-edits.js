@@ -30,7 +30,7 @@
   const composer = $('describe-edits').getBoundingClientRect(), zoom = $('zoom-controls').getBoundingClientRect();
   assert(composer.width <= 480 && composer.height < 70, 'Composer stays compact');
   const imageArea = $('viewport').getBoundingClientRect();
-  assert(composer.left >= imageArea.right || composer.top >= imageArea.bottom, 'Composer is outside image viewport');
+  assert(composer.bottom <= imageArea.top, 'Composer is outside image viewport');
   $('viewport').dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true })); await wait(100);
   let submitted;
   const viewState = () => JSON.stringify({ title: $('image-title').textContent, position: $('image-position').textContent,
@@ -44,7 +44,7 @@
   assert($('describe-edits').hidden, 'Successful submit collapses editor');
   const toast = $('status').getBoundingClientRect();
   const area = $('viewport').getBoundingClientRect();
-  assert(toast.left >= area.right || toast.top >= area.bottom, 'Toast stays outside image viewport');
+  assert(toast.bottom <= area.top, 'Toast stays outside image viewport');
   assert(toast.width <= 420, 'Toast remains narrow');
   return JSON.stringify({ imageDrafts: true, nativeRequestIdentity: true, sourceViewPreserved: true, focusAndIdle: true, composer: { width: composer.width, height: composer.height }, toastOutsideImage: true });
 })()

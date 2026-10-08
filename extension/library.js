@@ -5,7 +5,7 @@ import { VirtualGallery } from './virtual-gallery.js';
 import { cacheDisplay } from './cache-display.js';
 import { ThumbnailCache } from './thumbnail-cache.js';
 import { OriginalCache } from './original-cache.js';
-import { viewerDock } from './viewer-layout.js';
+import { viewerTopLayout } from './viewer-layout.js';
 
 const extension = globalThis.browser || globalThis.chrome;
 const preview = new URLSearchParams(location.search).get('preview') === '1' && !extension?.runtime?.id;
@@ -16,7 +16,7 @@ let originalLease = null;
 let account = null, online = false, images = [], filter = 'all', selectedId = null, selectedImage = null;
 let transform = { scale: 1, x: 0, y: 0 }, width = 0, height = 0;
 let viewMode = 'fit', sidebarHidden = true, chromeTimer;
-let viewerPanel = null, viewerLayoutFrame = 0;
+let viewerPanel = null, viewerMenuParent = false, viewerLayoutFrame = 0;
 let layout = 'grid', gridSize = 'medium';
 let hiddenIds = new Set(), filterStates = {}, listHidden;
 const hiddenPending = new Set(), promptCache = new Map();
@@ -75,27 +75,40 @@ function status(text) {
   if (text) revealControls();
 }
 function closeViewerPanel(focus = true) {
-  const previous = viewerPanel; viewerPanel = null;
-  for (const id of ['more', 'edit', 'notice']) $(`${id}-panel`).hidden = true;
+  const previous = viewerPanel; viewerPanel = null; viewerMenuParent = false;
+  for (const id of ['more', 'edit', 'notice', 'zoom', 'details', 'library']) $(`${id}-panel`).hidden = true;
   for (const id of ['help-dialog', 'settings-dialog', 'prompt-dialog']) {
     const dialog = $(id); if (dialog.open) dialog.close();
     if (dialog.parentElement === $('viewer-panel')) document.body.append(dialog);
   }
   $('viewer-panel').hidden = true;
-  $('toggle-edit').setAttribute('aria-expanded', 'false'); $('toggle-more').setAttribute('aria-expanded', 'false');
+  for (const id of ['toggle-edit', 'toggle-more', 'toggle-zoom']) $(id).setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('editing-image');
+  document.body.classList.remove('viewer-menu-open');
   $('describe-edits').hidden = true;
   requestViewerLayout();
-  if (focus && previous) $(previous === 'edit' ? 'toggle-edit' : 'toggle-more').focus({ preventScroll: true });
+  if (focus && previous) {
+    let trigger = $(previous === 'edit' ? 'toggle-edit' : previous === 'zoom' ? 'toggle-zoom' : previous === 'notice' ? 'notice-toggle' : 'toggle-more');
+    if (!trigger.getClientRects().length) trigger = $('toggle-more');
+    trigger.focus({ preventScroll: true });
+  }
 }
-function openViewerPanel(kind) {
-  closeViewerPanel(false); viewerPanel = kind; $('viewer-panel').hidden = false;
+function openViewerPanel(kind, fromMenu = false) {
+  closeViewerPanel(false); viewerPanel = kind; $('viewer-panel').hidden = kind === 'edit';
+  viewerMenuParent = fromMenu && kind !== 'more';
+  document.body.classList.toggle('editing-image', kind === 'edit');
+  document.body.classList.toggle('viewer-menu-open', kind !== 'edit');
   if (kind.endsWith('-dialog')) {
     $('viewer-panel').append($(kind)); $(kind).show();
   } else $(`${kind}-panel`).hidden = false;
   $('toggle-edit').setAttribute('aria-expanded', String(kind === 'edit'));
-  $('toggle-more').setAttribute('aria-expanded', String(kind === 'more'));
+  $('toggle-more').setAttribute('aria-expanded', String(kind === 'more' || viewerMenuParent));
+  $('toggle-zoom').setAttribute('aria-expanded', String(kind === 'zoom'));
   updateControls(); resizeEditPrompt(); requestViewerLayout(); revealControls();
   if (kind === 'edit') $('edit-prompt').focus({ preventScroll: true });
+  else requestAnimationFrame(() => {
+    if (viewerPanel === kind) panelButtons()[0]?.focus({ preventScroll: true });
+  });
   requestAnimationFrame(() => { if (viewerPanel === kind) $('viewer-panel').scrollTop = 0; });
 }
 function showDialog(id) {
@@ -107,18 +120,24 @@ function requestViewerLayout() {
 }
 function updateViewerLayout() {
   if (layout !== 'viewer') return;
-  const viewer = $('viewer');
-  const sizes = { edit: [300, 66 + (parseFloat($('edit-prompt').style.height) || 24)], more: [300, 220], notice: [300, 132],
-    'settings-dialog': [320, 260], 'help-dialog': [320, 240], 'prompt-dialog': [320, 240] };
-  const [panelWidth, panelHeight] = sizes[viewerPanel] || [0, 0];
-  const dock = viewerDock({ width: viewer.clientWidth, height: viewer.clientHeight, imageWidth: width || current()?.width || viewer.clientWidth,
-    imageHeight: height || current()?.height || viewer.clientHeight, panelWidth, panelHeight, current: viewer.dataset.dock });
-  const previousGeometry = `${viewer.dataset.dock}:${viewer.style.getPropertyValue('--panel-width')}`;
-  viewer.dataset.dock = dock.edge;
-  viewer.style.setProperty('--panel-width', `${viewerPanel ? dock.panelWidth : 0}px`);
-  viewer.style.setProperty('--panel-height', `${viewerPanel ? dock.panelHeight : 0}px`);
-  viewer.style.setProperty('--rail-height', `${dock.railHeight}px`);
-  if (viewerPanel === 'edit' && previousGeometry !== `${dock.edge}:${viewer.style.getPropertyValue('--panel-width')}`) resizeEditPrompt();
+  const panel = $('viewer-panel');
+  $('more-panel').hidden = viewerPanel !== 'more' && !(viewerMenuParent && document.body.clientWidth >= 680);
+  for (const button of document.querySelectorAll('[data-viewer-menu][aria-haspopup]')) {
+    button.setAttribute('aria-expanded', String(button.dataset.viewerMenu === viewerPanel));
+  }
+  const active = [...panel.children].filter(node => !node.hidden && (node.tagName !== 'DIALOG' || node.open));
+  const wantedHeight = active.length ? Math.max(...active.map(node => node.scrollHeight)) + 12 : 0;
+  const geometry = viewerTopLayout({ height: document.body.clientHeight, railHeight: $('controls-rail').offsetHeight, panelHeight: wantedHeight });
+  panel.style.setProperty('--panel-height', `${viewerPanel === 'edit' ? 0 : geometry.panelHeight}px`);
+  let trigger = $(viewerPanel === 'zoom' ? 'toggle-zoom' : viewerPanel === 'notice' ? 'notice-toggle' : 'toggle-more');
+  if (!trigger.getClientRects().length) trigger = $('toggle-more');
+  const triggerRect = trigger.getBoundingClientRect();
+  panel.style.setProperty('--menu-right', `${Math.max(8, document.body.clientWidth - triggerRect.right)}px`);
+}
+
+function panelButtons() {
+  const active = $(viewerPanel?.endsWith('-dialog') ? viewerPanel : `${viewerPanel}-panel`);
+  return [...(active?.querySelectorAll('button,input,select,textarea') || [])].filter(node => !node.disabled && node.getClientRects().length);
 }
 
 function displayDate(time) { return time ? new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(time) : ''; }
@@ -183,7 +202,7 @@ function changeLayout(value) {
   closeViewerPanel(false);
   layout = value; document.body.classList.toggle('grid-layout', layout === 'grid');
   gallery.setActive(layout === 'grid'); sidebarGallery.setActive(layout === 'viewer' && !sidebarHidden);
-  if (layout === 'viewer') $('controls-rail').prepend($('status')); else document.body.append($('status'));
+  if (layout === 'viewer') $('notice-slot').append($('status')); else document.body.append($('status'));
   requestViewerLayout(); revealControls(); saveView();
 }
 function openViewer(id) {
@@ -215,13 +234,15 @@ function updateControls() {
   $('describe-edits').hidden = !canEdit || viewerPanel !== 'edit';
   $('submit-edit').disabled = !image || !online || Boolean(editJob) || !$('edit-prompt').value.trim();
   $('favorite').classList.toggle('favorited', Boolean(image?.favorite));
+  $('menu-favorite').disabled = !image;
+  $('menu-favorite').querySelector('span').textContent = image?.favorite ? '取消收藏' : '收藏图片';
   $('favorite').setAttribute('aria-label', image?.favorite ? '取消收藏' : '收藏图片');
   $('favorite').setAttribute('aria-pressed', String(Boolean(image?.favorite)));
   $('favorite').title = image?.favorite ? '取消收藏（F）' : '收藏图片（F）';
   $('conversation').disabled = !image?.conversationId;
   $('conversation').hidden = Boolean(image && !image.conversationId);
   $('download').disabled = !currentURL || !width;
-  for (const id of ['zoom-in', 'zoom-out', 'fit', 'actual-size']) $(id).disabled = !width;
+  for (const id of ['zoom-in', 'zoom-out', 'fit', 'actual-size', 'toggle-zoom', 'menu-zoom']) $(id).disabled = !width;
   $('image-position').textContent = image ? index >= 0 ? `${index + 1} / ${visible.length}` : '当前图片已移出列表' : '';
   $('favorite-status').textContent = image?.favorite ? image.saved ? '已收藏 · 已保存在本地' : '已收藏 · 尚未保存原图' : '';
   if (image) {
@@ -234,6 +255,7 @@ function applyTransform() {
   transform = clampTransform(transform, width, height, viewport.clientWidth, viewport.clientHeight);
   mainImage.style.transform = `translate(-50%, -50%) translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
   $('actual-size').textContent = `${Math.round(transform.scale * 100)}%`;
+  $('zoom-percentage').textContent = $('actual-size').textContent;
 }
 function fit() {
   if (!width) return;
@@ -553,7 +575,19 @@ $('grid-settings').addEventListener('click', () => $('settings').click());
 $('grid-help').addEventListener('click', () => $('help').click());
 $('grid-connect').addEventListener('click', () => $('connect').click());
 $('toggle-edit').addEventListener('click', () => viewerPanel === 'edit' ? closeViewerPanel() : openViewerPanel('edit'));
-$('toggle-more').addEventListener('click', () => viewerPanel === 'more' ? closeViewerPanel() : openViewerPanel('more'));
+$('toggle-more').addEventListener('click', () => viewerPanel && viewerPanel !== 'edit' && viewerPanel !== 'zoom' && viewerPanel !== 'notice' ? closeViewerPanel() : openViewerPanel('more'));
+$('toggle-zoom').addEventListener('click', () => viewerPanel === 'zoom' ? closeViewerPanel() : openViewerPanel('zoom'));
+$('menu-favorite').addEventListener('click', () => { toggleFavorite(); closeViewerPanel(); });
+for (const button of document.querySelectorAll('[data-viewer-menu]')) {
+  if (button.dataset.viewerMenu !== 'more') button.setAttribute('aria-haspopup', 'menu');
+  button.addEventListener('click', () => openViewerPanel(button.dataset.viewerMenu, true));
+}
+for (const id of ['hide-image', 'locate-all', 'copy-prompt', 'conversation', 'download', 'viewer-refresh', 'fit', 'actual-size']) {
+  $(id).addEventListener('click', () => { if (viewerPanel && !viewerPanel.endsWith('-dialog')) closeViewerPanel(false); });
+}
+document.addEventListener('pointerdown', event => {
+  if (viewerPanel && viewerPanel !== 'edit' && !$('viewer-controls').contains(event.target)) closeViewerPanel(false);
+});
 $('notice-toggle').addEventListener('click', () => { if (layout === 'viewer') viewerPanel === 'notice' ? closeViewerPanel() : openViewerPanel('notice'); });
 for (const button of document.querySelectorAll('[data-close-viewer-panel]')) button.addEventListener('click', () => closeViewerPanel());
 for (const id of ['help-dialog', 'settings-dialog', 'prompt-dialog']) $(id).addEventListener('close', () => { if (viewerPanel === id && !$(id).open) closeViewerPanel(); });
@@ -563,10 +597,11 @@ $('viewer-refresh').addEventListener('click', refresh);
 $('edit-prompt').addEventListener('focus', revealControls);
 $('edit-prompt').addEventListener('blur', revealControls);
 let viewerDimensions = '';
-new ResizeObserver(() => {
-  const dimensions = `${$('viewer').clientWidth}:${$('viewer').clientHeight}`;
+const toolbarObserver = new ResizeObserver(() => {
+  const dimensions = `${document.body.clientWidth}:${document.body.clientHeight}:${$('controls-rail').offsetHeight}`;
   if (dimensions !== viewerDimensions) { viewerDimensions = dimensions; requestViewerLayout(); }
-}).observe($('viewer'));
+});
+toolbarObserver.observe(document.body); toolbarObserver.observe($('controls-rail'));
 $('cache-mode').addEventListener('change', async event => {
   event.target.disabled = true;
   try { await rpc('set-settings', { account, cacheMode: event.target.value }); await updateStorage(); }
@@ -607,6 +642,20 @@ $('download').addEventListener('click', async () => {
   anchor.click();
 });
 document.addEventListener('keydown', event => {
+  if (viewerPanel && viewerPanel !== 'edit' && !viewerPanel.endsWith('-dialog')) {
+    const buttons = panelButtons(), index = buttons.indexOf(document.activeElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+        : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[nextIndex]?.focus({ preventScroll: false }); return;
+    }
+    if (event.key === 'ArrowRight' && document.activeElement.dataset.viewerMenu) {
+      event.preventDefault(); document.activeElement.click(); return;
+    }
+    if (event.key === 'ArrowLeft' && viewerPanel !== 'more') { event.preventDefault(); openViewerPanel('more'); return; }
+    if (event.key.startsWith('Arrow')) { event.preventDefault(); return; }
+  }
   if (event.key === 'Escape' && viewerPanel) { event.preventDefault(); closeViewerPanel(); return; }
   if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest('input,textarea,select,[contenteditable]') || $('help-dialog').open || $('settings-dialog').open || $('prompt-dialog').open) return;
   if (layout === 'grid') {
@@ -650,8 +699,7 @@ function revealControls() {
   }, 2200);
 }
 function resizeEditPrompt() {
-  const input = $('edit-prompt'); input.style.height = '24px'; input.style.height = `${Math.min(72, Math.max(24, input.scrollHeight))}px`;
-  if (viewerPanel === 'edit') requestViewerLayout();
+  $('edit-prompt').style.height = '24px';
 }
 $('edit-prompt').addEventListener('input', () => {
   const key = `${account}:${selectedId}`;
