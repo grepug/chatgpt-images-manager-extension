@@ -13,7 +13,7 @@ function layoutMenus() {
   layoutFrame = requestAnimationFrame(() => {
     const cards = [...document.querySelectorAll('.component-menu')].sort((a,b) => +a.dataset.depth - +b.dataset.depth);
     if (!cards.length) return;
-    const surface = $('viewer').getBoundingClientRect();
+    const surface = $(cards[0].dataset.rootTrigger === 'grid-toggle-actions' ? 'grid-view' : 'viewer').getBoundingClientRect();
     const stacked = cards.reduce((total,node) => total + (node.dataset.form ? 300 : 232), 0) + 6 * cards.length > surface.width - 16;
     document.body.classList.toggle('component-menu-stacked', stacked);
     for (const card of cards) {
@@ -100,9 +100,9 @@ function Embedded({ id }) {
     if (event.target.closest('input,textarea,select') && event.key !== 'Escape') event.stopPropagation();
   }}/>;
 }
-function Dropdown({ zoom=false }) {
+function Dropdown({ zoom=false, grid=false }) {
   const [open,setOpen] = useState(false), [,rerender] = useState(0);
-  const triggerId = zoom ? 'toggle-zoom' : 'toggle-more';
+  const triggerId = grid ? 'grid-toggle-actions' : zoom ? 'toggle-zoom' : 'toggle-more';
   const changeOpen = value => {
     if (value) {
       for (const root of roots) root.close();
@@ -117,19 +117,26 @@ function Dropdown({ zoom=false }) {
   useEffect(() => {
     const observer = new MutationObserver(() => rerender(value => value + 1));
     // Read existing command state without replacing the gallery controller.
-    observer.observe($('more-panel'), {subtree:true,attributes:true,childList:true,characterData:true});
-    observer.observe($('actual-size'), {attributes:true,childList:true,characterData:true});
+    for (const id of grid ? ['grid-select-all','grid-clear-selection','grid-hide-selected','grid-favorite-selected','grid-unfavorite-selected'] : ['more-panel','actual-size'])
+      observer.observe($(id), {subtree:true,attributes:true,childList:true,characterData:true});
     return () => observer.disconnect();
   },[]);
   return <Menu.Root modal={false} open={open} onOpenChange={changeOpen}>
     <Menu.Trigger id={triggerId} className={zoom ? 'zoom-trigger' : 'icon-button'}
-      aria-label={zoom ? '缩放选项' : '更多图片操作'} title={zoom ? '缩放选项' : '更多图片操作'}
+      aria-label={grid ? '多选操作' : zoom ? '缩放选项' : '更多图片操作'} title={grid ? '多选操作' : zoom ? '缩放选项' : '更多图片操作'}
       disabled={zoom && $('actual-size').disabled}
       onClick={event => { if (event.detail === 0) changeOpen(!open); }}>
       {zoom ? <><span id="zoom-percentage">{$('actual-size').textContent}</span><span className="menu-chevron">⌄</span></> : <Icon name="more"/>}
     </Menu.Trigger>
     <Card depth={0} rootTrigger={triggerId}>
-      {zoom ? <ZoomItems/> : <>
+      {grid ? <>
+        <Action id="grid-select-all" icon="check"/>
+        <Action id="grid-clear-selection" icon="minus"/>
+        <Menu.Separator className="component-separator"/>
+        <Action id="grid-hide-selected" icon="hide"/>
+        <Action id="grid-favorite-selected" icon="star" shortcut="F"/>
+        <Action id="grid-unfavorite-selected" icon="star"/>
+      </> : zoom ? <ZoomItems/> : <>
         <Action id="menu-favorite" icon="star" shortcut="F"/>
         <Branch label="缩放" icon="fit" id="zoom" depth={1}><ZoomItems/></Branch>
         <Menu.Separator className="component-separator"/>
@@ -162,9 +169,9 @@ window.viewerMenus = {
   isOpen() { return [...roots].some(root => root.isOpen()); },
   layout: layoutMenus,
 };
-for (const zoom of [false,true]) {
-  const original = $(zoom ? 'toggle-zoom' : 'toggle-more'), host = document.createElement('span');
+for (const options of [{},{zoom:true},{grid:true}]) {
+  const original = $(options.grid ? 'grid-toggle-actions' : options.zoom ? 'toggle-zoom' : 'toggle-more'), host = document.createElement('span');
   host.className = 'component-menu-mount'; original.replaceWith(host);
-  flushSync(() => createRoot(host).render(<Dropdown zoom={zoom}/>));
+  flushSync(() => createRoot(host).render(<Dropdown {...options}/>));
 }
 window.addEventListener('resize',layoutMenus);

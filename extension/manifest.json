@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Images Manager",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "直接浏览 ChatGPT 图片库，支持快捷键、缩放、本地缓存与收藏。",
   "permissions": [
     "storage",

@@ -49,7 +49,7 @@ export async function nativeRequest(op, args = {}) {
   return response.result;
 }
 async function sendNative(extension, message) {
-  const retryable = new Set(['ping', 'get', 'list', 'summary', 'verify-page', 'migration-receipt-page', 'thumbnail-info', 'thumbnail-read', 'asset-info', 'asset-read', 'batch', 'put', 'import-missing', 'update', 'merge', 'reconcile', 'favorite', 'hidden', 'asset-chunk', 'asset-commit', 'asset-abort']);
+  const retryable = new Set(['ping', 'get', 'list', 'summary', 'verify-page', 'migration-receipt-page', 'thumbnail-info', 'thumbnail-read', 'asset-info', 'asset-read', 'batch', 'put', 'import-missing', 'update', 'merge', 'reconcile', 'favorite', 'hidden', 'bulk-flags', 'asset-chunk', 'asset-commit', 'asset-abort']);
   for (let attempt = 0;; attempt++) {
     try { return await extension.runtime.sendNativeMessage(NATIVE_APP, message); }
     catch (error) {

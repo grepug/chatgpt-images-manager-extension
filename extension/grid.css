@@ -6,6 +6,17 @@
 .grid-filters button.active,.grid-sizes button.active{background:var(--hover);color:var(--text)}
 .grid-filters span{font-size:10px;margin-left:5px;font-variant-numeric:tabular-nums}
 .grid-tools{display:flex;align-items:center;gap:5px;margin-left:auto}.grid-sizes{display:flex;gap:2px;margin-right:9px;border:1px solid var(--border);border-radius:9px;padding:2px}
+.grid-tool-modes{display:grid;width:355px;flex-shrink:0}.grid-tools-normal,.grid-selection-tools{grid-area:1/1;display:flex;align-items:center;justify-content:flex-end;gap:5px;transition:opacity .16s,visibility .16s}
+.grid-selection-tools{opacity:0;visibility:hidden;pointer-events:none}.grid-selecting .grid-tools-normal{opacity:0;visibility:hidden;pointer-events:none}.grid-selecting .grid-selection-tools{opacity:1;visibility:visible;pointer-events:auto}
+.selection-text{height:32px;padding:0 8px;border-radius:8px;font-size:12px;white-space:nowrap}.selection-text:hover{background:var(--hover)}
+#grid-selection-count{margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--secondary);font-variant-numeric:tabular-nums}
+.grid-selection-tools .icon-button span,.selection-command{display:none}
+.grid-selection-check{display:none;position:absolute;right:9px;top:9px;width:25px;height:25px;border:1px solid #fffa;border-radius:8px;background:#0005;color:white;align-items:center;justify-content:center;pointer-events:none;transition:background .15s,border-color .15s}
+.grid-selection-check .icon{width:17px;height:17px;opacity:0;transition:opacity .15s}.multi-select-card .grid-selection-check{display:flex}.is-batch-selected .grid-selection-check{background:var(--text);border-color:var(--text);color:var(--bg)}.is-batch-selected .grid-selection-check .icon{opacity:1}
+.grid-card::after{content:'';position:absolute;inset:0;border:2px solid var(--selected-border);border-radius:12px;opacity:0;pointer-events:none;transition:opacity .15s}.grid-card.is-batch-selected::after{opacity:1}
+.multi-select-card .grid-favorite,.multi-select-card .grid-action{display:none}.multi-select-card .grid-open:disabled{opacity:1;cursor:default}
+@media(max-width:1100px){.grid-tool-modes{width:228px}.selection-secondary{display:none!important}}
+@media(max-width:580px){.grid-tools{width:100%;justify-content:space-between}.grid-tool-modes{width:190px}.grid-tools-normal,.grid-selection-tools{gap:2px}.grid-tools-normal .icon-button{width:30px}.selection-text{padding:0 5px}#grid-selection-count{font-size:11px}}
 .grid-sizes button{padding:0 11px;height:27px;border-radius:6px}.grid-toolbar .icon-button{width:32px;height:32px}
 .grid-scroll{flex:1;min-height:0;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-width:thin;outline:none}
 .grid-canvas,.thumbnail-canvas{position:relative;width:100%;contain:layout style}

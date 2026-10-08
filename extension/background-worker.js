@@ -1,4 +1,4 @@
-import { getValue, putValue, putValues, updateValue, allValues, mergeLibrary, getImages, getAsset, getThumbnailAsset, storeAsset, setFavorite, setHidden, assetMetadata, cacheSummary, migrateStorage, migrationStatus, cleanLegacyStorage } from './db.js';
+import { getValue, putValue, putValues, updateValue, allValues, mergeLibrary, getImages, getAsset, getThumbnailAsset, storeAsset, setFavorite, setHidden, setBulkFlags, assetMetadata, cacheSummary, migrateStorage, migrationStatus, cleanLegacyStorage } from './db.js';
 import { cacheMode, CACHE_MODES } from './cache-policy.js';
 import { CacheRunner } from './cache-runner.js';
 import { THUMBNAIL_VERSION } from './thumbnail-cache.js';
@@ -208,6 +208,14 @@ async function handle(message, sender) {
   if (message.type === 'hidden') {
     const result = await setHidden(message.account, message.id, message.hidden === true);
     await broadcast({ event: 'hidden-updated', account: message.account, id: message.id });
+    return result;
+  }
+  if (message.type === 'bulk-flags') {
+    const result = await setBulkFlags(message.account, message.ids, message.kind, message.value);
+    await broadcast({ event: message.kind === 'hidden' ? 'hidden-updated' : 'updated', account: message.account });
+    // The durable cache runner downloads favorites with bounded concurrency;
+    // marking thousands of favorites must not enqueue thousands of asset RPCs.
+    if (message.kind === 'favorite' && message.value) wake(message.account);
     return result;
   }
   if (message.type === 'prompt') {

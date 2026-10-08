@@ -16,6 +16,7 @@
 </head>
 <body class="grid-layout">
   <svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
     <symbol id="icon-images" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m5 16 5-5 4 4 3-3 3 3"/><circle cx="15.5" cy="8.5" r="1"/></symbol>
     <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
     <symbol id="icon-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
@@ -48,10 +49,26 @@
       </div>
       <div class="grid-tools">
         <div class="grid-sizes" aria-label="图片大小"><button id="grid-size-small" aria-pressed="false">小</button><button id="grid-size-medium" class="active" aria-pressed="true">中</button><button id="grid-size-large" aria-pressed="false">大</button></div>
+        <div class="grid-tool-modes">
+        <div id="grid-tools-normal" class="grid-tools-normal">
+        <button id="grid-select" class="icon-button" aria-label="多选图片" title="多选图片"><svg class="icon"><use href="#icon-check"/></svg></button>
         <button id="grid-open-viewer" class="icon-button" aria-label="大图视图" title="大图视图"><svg class="icon"><use href="#icon-images"/></svg></button>
         <button id="grid-refresh" class="icon-button" aria-label="刷新图片库" title="刷新图片库"><svg class="icon"><use href="#icon-refresh"/></svg></button>
         <button id="grid-settings" class="icon-button" aria-label="缓存设置" title="缓存设置"><svg class="icon"><use href="#icon-settings"/></svg></button>
         <button id="grid-help" class="icon-button" aria-label="快捷键说明" title="快捷键说明"><svg class="icon"><use href="#icon-help"/></svg></button>
+        </div>
+        <div id="grid-selection-tools" class="grid-selection-tools" inert>
+          <span id="grid-selection-count" role="status" aria-live="polite">已选 0 张</span>
+          <button id="grid-select-all" class="selection-text">全选</button>
+          <button id="grid-clear-selection" class="selection-text selection-secondary">清空</button>
+          <button id="grid-hide-selected" class="icon-button selection-secondary" title="隐藏" aria-label="隐藏"><svg class="icon"><use href="#icon-hide"/></svg><span>隐藏</span></button>
+          <button id="grid-favorite-selected" class="icon-button selection-secondary" title="收藏" aria-label="收藏"><svg class="icon"><use href="#icon-star"/></svg><span>收藏</span></button>
+          <button id="grid-unfavorite-selected" class="selection-command">取消收藏</button>
+          <button id="grid-toggle-actions" class="icon-button" title="多选操作" aria-label="多选操作"><svg class="icon"><use href="#icon-more"/></svg></button>
+          <button id="grid-selection-done" class="selection-text">完成</button>
+          <button id="grid-selection-stop" class="selection-text" hidden>停止</button>
+        </div>
+        </div>
       </div>
     </header>
     <div id="grid-scroll" class="grid-scroll" tabindex="0" aria-label="grid 图库滚动区域"><div id="grid-canvas" class="grid-canvas" role="list" aria-label="图片"></div><div id="grid-empty" class="grid-empty"><p id="grid-empty-text">正在加载你的图片…</p><button id="grid-connect" class="primary-button" hidden>打开 ChatGPT 图片库</button></div></div>

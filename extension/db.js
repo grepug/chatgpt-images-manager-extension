@@ -2,6 +2,7 @@ import * as legacy from './idb-db.js';
 import { nativeRequest, nativeRead, nativeWrite, nativeThumbnail, nativeVerify, nativeReceipt } from './native-storage.js';
 import { cacheProgress } from './cache-policy.js';
 import { fitsThumbnail, THUMBNAIL_VERSION } from './thumbnail-cache.js';
+import { bulkRequest } from './grid-selection.js';
 
 const native = globalThis.location?.protocol === 'safari-web-extension:';
 export const database = legacy.database;
@@ -23,6 +24,10 @@ export async function updateValue(store, key, changes) { return native ? nativeR
 export async function getHiddenIds(account) { return new Set((await getValue('hidden', account))?.ids || []); }
 export async function setHidden(account, id, hidden) { return native ? nativeRequest('hidden', { account, id, hidden }) : legacy.setHidden(account, id, hidden); }
 export async function setFavorite(account, id, favorite) { return native ? nativeRequest('favorite', { account, id, favorite }) : legacy.setFavorite(account, id, favorite); }
+export async function setBulkFlags(account, ids, kind, value) {
+  const args = bulkRequest(account, ids, kind, value);
+  return native ? nativeRequest('bulk-flags', args) : legacy.setBulkFlags(account, args.ids, kind, value);
+}
 export async function mergeLibrary(account, images, complete = false) {
   if (!native) return legacy.mergeLibrary(account, images, complete);
   for (let offset = 0; offset < images.length; offset += 100) await nativeRequest('merge', { account, images: images.slice(offset, offset + 100) });
