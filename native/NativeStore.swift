@@ -212,6 +212,35 @@ final class NativeStore {
                 if asset != nil { asset!["pinned"] = favorite; try put("assetInfo",asset!) }
                 try put("images",image); return image
             }
+        case "bulk-flags":
+            guard let account = request["account"] as? String, !account.isEmpty,
+                  let incoming = request["ids"] as? [String], !incoming.isEmpty, incoming.count <= 100,
+                  incoming.allSatisfy({ !$0.isEmpty && $0.count <= 1024 }),
+                  let kind = request["kind"] as? String, ["hidden", "favorite"].contains(kind),
+                  let value = request["value"] as? Bool else { throw StoreFailure.invalid }
+            let ids = incoming.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+            return try transaction { () -> [String: Any] in
+                var succeeded = [String](), failed = [[String: String]](), images = [[String: Any]]()
+                var hidden = Set(try get("hidden", account)?["ids"] as? [String] ?? [])
+                for id in ids {
+                    guard var image = try get("images", "\(account):\(id)") else {
+                        failed.append(["id": id, "error": "图片不存在"]); continue
+                    }
+                    if kind == "hidden" {
+                        if value { hidden.insert(id) } else { hidden.remove(id) }
+                    } else {
+                        let key = "\(account):\(id):original"
+                        var asset = try get("assetInfo", key)
+                        image["favorite"] = value; image["localOriginal"] = asset != nil
+                        image["saved"] = value && asset != nil
+                        if asset != nil { asset!["pinned"] = value; try put("assetInfo", asset!) }
+                        try put("images", image); images.append(image)
+                    }
+                    succeeded.append(id)
+                }
+                if kind == "hidden" && !succeeded.isEmpty { try put("hidden", ["key": account, "ids": Array(hidden).sorted()]) }
+                return ["succeeded": succeeded, "failed": failed, "images": images]
+            }
         case "merge":
             guard let account = request["account"] as? String, let incoming = request["images"] as? [[String: Any]] else { throw StoreFailure.invalid }
             return try transaction { () -> [[String: Any]] in

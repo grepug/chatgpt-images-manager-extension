@@ -1,0 +1,23 @@
+/* Radix menu styling and narrow-window placement. */
+.component-menu-mount{display:inline-flex}
+.component-menu{width:232px;max-width:calc(100vw - 16px);max-height:var(--radix-dropdown-menu-content-available-height);overflow:auto;overscroll-behavior:contain;padding:5px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);box-shadow:0 8px 28px #0002;z-index:20;outline:none;pointer-events:auto;font:12px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+.component-menu[data-form]{width:300px}
+.component-item{display:flex;align-items:center;gap:9px;min-height:31px;padding:6px 9px;border-radius:5px;outline:none;cursor:default;user-select:none}
+.component-item>span:first-of-type{flex:1}
+.component-item .icon{width:16px;height:16px;flex:none}
+.component-item[data-highlighted],.component-item[data-state=open]{background:var(--hover)}
+.component-item:focus-visible{outline:none}
+.component-item[data-disabled]{opacity:.38;pointer-events:none}
+.component-item kbd{border:none;background:none;color:var(--secondary);font-size:10px;padding:0}
+.component-chevron{color:var(--secondary);font-size:17px;line-height:16px}
+.component-separator{height:1px;margin:5px 6px;background:var(--border)}
+[data-radix-popper-content-wrapper]:has(>.component-menu){z-index:20!important}
+[data-radix-popper-content-wrapper].stacked-menu-position{position:fixed!important;transform:none!important;min-width:0!important}
+.stacked-menu-position>.component-menu{width:100%;max-width:none}
+.component-menu .component-embedded{position:static!important;inset:auto!important;margin:0!important;padding:7px!important;width:100%!important;max-width:none!important;max-height:none!important;border:0!important;box-shadow:none!important;background:none!important;overflow:visible!important;color:var(--text)}
+.component-menu .sheet-heading{display:none}
+.component-menu .image-info h2{font-size:14px;line-height:1.5}
+.component-menu .dialog-title h2{font-size:14px}
+.component-menu .dialog-note,.component-menu .setting-row,.component-menu .shortcut-list{font-size:11px;line-height:1.6}
+.component-menu .secondary-button{min-height:29px;font-size:11px;margin-bottom:4px}
+.viewer-dialog{position:fixed;inset:58px 12px auto auto;margin:0;width:300px;max-height:calc(100dvh - 76px);overflow:auto;z-index:25}

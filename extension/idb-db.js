@@ -1,5 +1,6 @@
 import { mergeImages } from './core.js';
 import { DEFAULT_CACHE_MODE, evictionPlan } from './cache-policy.js';
+import { bulkRequest } from './grid-selection.js';
 const DB_NAME = 'chatgpt-images-manager';
 let opening;
 const request = value => new Promise((resolve, reject) => { value.onsuccess = () => resolve(value.result); value.onerror = () => reject(value.error); });
@@ -102,6 +103,40 @@ export async function setFavorite(account, id, favorite) {
   if (asset) assets.put({ ...asset, pinned: favorite, accessedAt: Date.now() });
   await done;
   return image;
+}
+export async function setBulkFlags(account, ids, kind, value) {
+  ({ ids } = bulkRequest(account, ids, kind, value));
+  const db = await database();
+  const transaction = db.transaction(['images', 'hidden', 'assetInfo'], 'readwrite'), done = completion(transaction);
+  done.catch(() => {});
+  try {
+    const store = transaction.objectStore('images'), assets = transaction.objectStore('assetInfo');
+    const hiddenStore = transaction.objectStore('hidden');
+    const hidden = new Set((await request(hiddenStore.get(account)))?.ids || []);
+    const result = { succeeded: [], failed: [], images: [] };
+    for (const id of ids) {
+      const image = await request(store.get(`${account}:${id}`));
+      if (!image) { result.failed.push({ id, error: '图片不存在' }); continue; }
+      if (kind === 'hidden') {
+        if (value) hidden.add(id); else hidden.delete(id);
+      } else {
+        const asset = await request(assets.get(`${account}:${id}:original`));
+        image.favorite = value; image.saved = Boolean(value && asset);
+        image.localOriginal = Boolean(asset);
+        store.put(image);
+        if (asset) assets.put({ ...asset, pinned: value });
+        result.images.push(image);
+      }
+      result.succeeded.push(id);
+    }
+    if (kind === 'hidden' && result.succeeded.length) hiddenStore.put({ key: account, ids: [...hidden] });
+    await done;
+    return result;
+  } catch (error) {
+    try { transaction.abort(); } catch {}
+    await done.catch(() => {});
+    throw error;
+  }
 }
 export async function getAsset(account, id, kind = 'original') {
   const key = `${account}:${id}:${kind}`;

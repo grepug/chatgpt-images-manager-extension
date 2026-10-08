@@ -1,8 +1,8 @@
 import { masonryLayout, masonryWindow, masonryAnchor, masonryScrollTop } from './masonry.js';
 
 export class VirtualGallery {
-  constructor({ host, canvas, sidebar = false, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon }) {
-    Object.assign(this, { host, canvas, sidebar, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon });
+  constructor({ host, canvas, sidebar = false, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon, selection, selectImage }) {
+    Object.assign(this, { host, canvas, sidebar, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon, selection, selectImage });
     this.visibilityTimers = new Map(); this.notified = new Set();
     this.images = []; this.byId = new Map(); this.nodes = new Map(); this.dimensions = new Map();
     this.prefetches = new Map(); this.exits = new Set(); this.filter = 'all';
@@ -35,6 +35,15 @@ export class VirtualGallery {
     this.size = size;
     if (this.active) this.rebuild();
   }
+  updateSelection(record) {
+    if (this.sidebar || !this.selection) return;
+    const active = this.selection.active, chosen = active && this.selection.ids.has(record.node.dataset.id);
+    record.node.classList.toggle('multi-select-card', active);
+    record.node.classList.toggle('is-batch-selected', chosen);
+    record.open.disabled = active && this.selection.locked;
+    if (active) record.open.setAttribute('aria-pressed', String(chosen)); else record.open.removeAttribute('aria-pressed');
+  }
+  selectionChanged() { for (const record of this.nodes.values()) this.updateSelection(record); }
   setImages(images, selectedId, preserve = true, animate = false) {
     const positions = animate && this.active && !matchMedia('(prefers-reduced-motion: reduce)').matches
       ? new Map([...this.nodes].map(([id, record]) => [id, record.node.getBoundingClientRect()])) : null;
@@ -129,7 +138,14 @@ export class VirtualGallery {
     const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.decoding = 'async';
     img.className = this.sidebar ? 'thumbnail-image' : 'grid-image';
     const title = document.createElement('span'); title.className = this.sidebar ? 'thumbnail-title' : 'grid-card-title';
-    open.append(img, title); open.addEventListener('click', () => this.openImage(image.id));
+    open.append(img, title); open.addEventListener('click', event => {
+      if (this.selection?.active) this.selectImage(image.id, event.shiftKey);
+      else this.openImage(image.id);
+    });
+    if (!this.sidebar) {
+      const check = document.createElement('span'); check.className = 'grid-selection-check'; check.setAttribute('aria-hidden', 'true');
+      if (this.actionIcon) check.append(this.actionIcon('check')); open.append(check);
+    }
     const star = document.createElement(this.sidebar ? 'span' : 'button');
     star.className = this.sidebar ? 'thumbnail-star' : 'grid-favorite'; star.append(this.starIcon());
     if (this.sidebar) {
@@ -211,6 +227,7 @@ export class VirtualGallery {
       open.setAttribute('aria-label', `${image.title}${image.favorite ? '，已收藏' : ''}`);
       open.setAttribute('aria-current', String(image.id === this.selectedId));
       node.classList.toggle('selected', image.id === this.selectedId);
+      this.updateSelection(record);
       title.textContent = image.deleted ? `${image.title} · 来源已删除` : image.title;
       if (this.sidebar) {
         star.hidden = !image.favorite;

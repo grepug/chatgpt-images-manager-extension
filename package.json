@@ -1,9 +1,12 @@
 {
   "name": "chatgpt-images-manager-extension",
-  "version": "0.7.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "build:ui": "node scripts/build-ui.mjs",
+    "test:viewer": "node tests/browser/viewer-menu.mjs",
+    "test:grid": "node tests/browser/grid-selection.mjs",
     "test": "node --test tests/*.test.js",
     "check": "node scripts/check.mjs",
     "preview": "node scripts/preview.mjs",
@@ -11,7 +14,12 @@
     "safari:run": "node scripts/run-safari.mjs"
   },
   "devDependencies": {
-    "fake-indexeddb": "^6.2.4",
-    "esbuild": "^0.25.12"
+    "esbuild": "^0.25.12",
+    "fake-indexeddb": "^6.2.4"
+  },
+  "dependencies": {
+    "@radix-ui/react-dropdown-menu": "2.1.16",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
   }
 }

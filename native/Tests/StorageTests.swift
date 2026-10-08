@@ -11,6 +11,33 @@ final class StorageTests: XCTestCase {
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at:directory) }
     func store(_ name: String) throws -> NativeStore { try NativeStore(persistentRoot:directory.appendingPathComponent(name),cacheRoot:directory.appendingPathComponent(name + "-cache")) }
+    func testBulkFlagsPreserveBytesAndAccountIsolation() throws {
+        let s = try store("bulk")
+        for id in ["a", "b"] { try s.put("images", ["key":"account:\(id)", "account":"account", "id":id, "favorite":false]) }
+        try s.put("images", ["key":"other:a", "account":"other", "id":"a", "favorite":false])
+        _ = try write(s, id:"a")
+        let hidden = try s.handle(["op":"bulk-flags", "account":"account", "ids":["a","b","missing","a"], "kind":"hidden", "value":true]) as! [String:Any]
+        XCTAssertEqual(hidden["succeeded"] as? [String], ["a","b"])
+        XCTAssertEqual((hidden["failed"] as? [[String:String]])?.first?["id"], "missing")
+        XCTAssertEqual(Set(try s.get("hidden","account")?["ids"] as! [String]), Set(["a","b"]))
+        XCTAssertNil(try s.get("hidden","other"))
+        for _ in 0..<2 { _ = try s.handle(["op":"bulk-flags", "account":"account", "ids":["a","b"], "kind":"favorite", "value":true]) }
+        XCTAssertEqual(try s.get("images","account:a")?["saved"] as? Bool,true)
+        XCTAssertEqual(try s.get("images","account:b")?["saved"] as? Bool,false)
+        XCTAssertEqual(try s.get("images","other:a")?["favorite"] as? Bool,false)
+        _ = try s.handle(["op":"bulk-flags", "account":"account", "ids":["a","b"], "kind":"favorite", "value":false])
+        XCTAssertEqual(try s.get("assetInfo","account:a:original")?["pinned"] as? Bool,false)
+        XCTAssertEqual((try s.handle(["op":"verify-assets"]) as! [String:Int])["verified"],1)
+        _ = try s.handle(["op":"bulk-flags", "account":"account", "ids":["a","b"], "kind":"hidden", "value":false])
+        XCTAssertEqual(try s.get("hidden","account")?["ids"] as? [String],[])
+    }
+    func testBulkRejectsInvalidArgumentsBeforeWriting() throws {
+        let s = try store("bulk-invalid")
+        for ids in [[], Array(repeating:"a",count:101), [""]] {
+            XCTAssertThrowsError(try s.handle(["op":"bulk-flags", "account":"account", "ids":ids, "kind":"hidden", "value":true]))
+        }
+        XCTAssertNil(try s.get("hidden","account"))
+    }
     func write(_ store: NativeStore, id: String = "picture", bytes: Data = Data("synthetic original".utf8)) throws -> [String:Any] {
         let token = (try store.handle(["op":"asset-begin","size":bytes.count]) as! [String:Any])["token"] as! String
         _ = try store.handle(["op":"asset-chunk","token":token,"offset":0,"data":bytes.base64EncodedString()])

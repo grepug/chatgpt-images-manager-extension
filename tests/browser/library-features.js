@@ -10,6 +10,8 @@
   assert(location.hostname === '127.0.0.1' && location.search.includes('preview=1'), 'Test preview only');
   const db = await import('/db.js'), preview = await import('/preview.js'), $ = id => document.getElementById(id);
   const host = $('grid-scroll'), account = 'preview-account';
+  if (!document.body.classList.contains('grid-layout')) $('return-grid').click();
+  $('grid-filter-all').click();
   const images = Array.from({ length: 2000 }, (_, index) => ({ id: `fixture-${index}`, title: `测试图片 ${index}`,
     conversationId: 'preview-conversation', createdAt: Date.UTC(2026, 9, 7) - index * 60000, ...preview.fixtureDimensions(index) }));
   await db.mergeLibrary(account, images, true);
