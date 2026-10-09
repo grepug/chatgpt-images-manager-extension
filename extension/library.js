@@ -1,4 +1,4 @@
-import { getImages, getValue, putValue, getAsset, getThumbnailAsset, storeAsset, getHiddenIds, allValues } from './db.js';
+import { getImages, getValue, putValue, getAsset, getThumbnailAsset, storeAsset, getHiddenIds, allValues, imageGeometry } from './db.js';
 import { visibleImages, adjacentImages, moveSelection, fitScale, zoomAt, clampTransform, formatBytes } from './core.js';
 import { GRID_SIZES } from './masonry.js';
 import { VirtualGallery } from './virtual-gallery.js';
@@ -7,6 +7,7 @@ import { ThumbnailCache } from './thumbnail-cache.js';
 import { OriginalCache } from './original-cache.js';
 import { GridSelection, runBulk } from './grid-selection.js';
 import { ChatStateQueue, archivePlan, runArchive, chatStatus, chatLabel } from './chat-archive.js';
+import { emptyQuery, normalizeQuery, compileQuery, queryKey, normalizeViews, viewNameError, validRule } from './image-filters.js';
 
 const extension = globalThis.browser || globalThis.chrome;
 const preview = new URLSearchParams(location.search).get('preview') === '1' && !extension?.runtime?.id;
@@ -33,7 +34,12 @@ let demandFrame = 0, demandAccount = null;
 const demandIds = new Set();
 const gridSelection = new GridSelection();
 let bulkJob = null, bulkAnimationUntil = 0;
-let chatFilter = 'any', chatVersion = 0, listChatVersion = -1, archiveConfirmation = null, singleArchive = false;
+let imageQuery = emptyQuery(), savedViews = [], activeViewId = null, filterError = '', viewSaving = false;
+let geometryStatus = '', geometryRun = null, geometryGeneration = 0, geometryChecked = new Set();
+let viewWrite = Promise.resolve(), calendarKey = '';
+let chatVersion = 0, listChatVersion = -1, archiveConfirmation = null, singleArchive = false;
+let visibleIds = new Set();
+let currentMatches = () => true;
 const chatQueue = new ChatStateQueue({
   active: () => Boolean(account && online && !document.hidden && !bulkJob),
   read: ids => rpc('chat-status', { account, ids }),
@@ -43,10 +49,10 @@ function chatStatesChanged() {
   const previous = list();
   images = images.map(image => image.deleted && chatQueue.states.get(image.conversationId)?.archived === true ? { ...image, deleted: false } : image);
   chatVersion++;
-  if (chatFilter !== 'any' && !bulkJob) { renderList(true, true); reconcileHiddenSelection(previous); }
+  if (imageQuery.rules.some(rule => rule.field === 'archive') && !bulkJob) { renderList(true, true); reconcileHiddenSelection(previous); }
   else { gallery.schedule(); sidebarGallery.schedule(); updateControls(); updateGridSelection(); }
 }
-function chatScope() { return filter + ':' + chatFilter; }
+function chatScope() { return activeViewId ? `view:${activeViewId}:${filter}` : imageQuery.rules.length ? `query:${filter}:${queryKey(imageQuery)}` : filter + ':any'; }
 function displayChatState(id) {
   const state = chatQueue.states.get(id);
   return !online && typeof state?.archived === 'boolean' ? { ...state, error: undefined } : state;
@@ -54,7 +60,7 @@ function displayChatState(id) {
 function scopedImages(scope = filter) {
   const retained = images.map(image => image.deleted && chatQueue.states.get(image.conversationId)?.archived === true ? { ...image, deleted: false } : image);
   const base = visibleImages(retained, scope, hiddenIds);
-  return chatFilter === 'any' ? base : base.filter(image => chatStatus(displayChatState(image.conversationId)) === chatFilter);
+  return imageQuery.rules.length ? base.filter(compileQuery(imageQuery, { state: displayChatState })) : base;
 }
 function visibleChats(ids) { chatQueue.enqueue(ids, 0); }
 function refreshChatStates() {
@@ -143,14 +149,14 @@ function displayDate(time) { return time ? new Intl.DateTimeFormat('zh-CN', { ye
 function list() {
   if (listImages !== images || listFilter !== chatScope() || listHidden !== hiddenIds || listChatVersion !== chatVersion) {
     listImages = images; listFilter = chatScope(); listHidden = hiddenIds; listChatVersion = chatVersion; visibleList = scopedImages();
-    imageById = new Map(images.map(image => [image.id, image]));
+    imageById = new Map(images.map(image => [image.id, image])); visibleIds = new Set(visibleList.map(image => image.id));
+    currentMatches = compileQuery(imageQuery, { state:displayChatState });
   }
   return visibleList;
 }
 function current() {
   list(); const image = imageById.get(selectedId) || selectedImage;
-  return image && hiddenIds.has(image.id) === (filter === 'hidden')
-    && (chatFilter === 'any' || chatStatus(displayChatState(image.conversationId)) === chatFilter) ? image : null;
+  return image && hiddenIds.has(image.id) === (filter === 'hidden') && currentMatches(image) ? image : null;
 }
 function icon(name, className = 'icon') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -182,7 +188,7 @@ function renderList(preserve = true, animate = false) {
   gridSelection.reconcile(visible);
   gallery.filter = sidebarGallery.filter = filter;
   gallery.setImages(visible, selectedId, preserve, animate); sidebarGallery.setImages(visible, selectedId, preserve, animate);
-  const emptyText = filter === 'hidden' ? '隐藏的图片只会出现在这里。' : filter === 'favorites' ? '收藏喜欢的图片，在这里随时找回。' : online ? '正在加载你的图片…' : '连接 ChatGPT 后，你的图片会出现在这里。';
+  const emptyText = imageQuery.rules.length ? geometryStatus === 'working' ? '正在补齐本地图片尺寸…' : '没有符合筛选条件的图片。' : filter === 'hidden' ? '隐藏的图片只会出现在这里。' : filter === 'favorites' ? '收藏喜欢的图片，在这里随时找回。' : online ? '正在加载你的图片…' : '连接 ChatGPT 后，你的图片会出现在这里。';
   $('grid-empty').hidden = Boolean(visible.length); $('grid-empty-text').textContent = emptyText;
   $('sidebar-empty').hidden = Boolean(visible.length); $('sidebar-empty').textContent = emptyText;
   for (const prefix of ['', 'grid-']) {
@@ -195,7 +201,7 @@ function renderList(preserve = true, animate = false) {
     }
   }
   $('list-label').textContent = filter === 'hidden' ? '隐藏的图片' : filter === 'favorites' ? '收藏的图片' : '最近的图片';
-  updateControls(); updateGridSelection(); updateEmptyState();
+  updateControls(); updateGridSelection(); updateEmptyState(); notifyFilters();
 }
 
 function updateGridSelection() {
@@ -224,7 +230,7 @@ function updateGridSelection() {
   $('grid-selection-stop').textContent = bulkJob?.stopped ? '停止中' : '停止';
   $('grid-open-viewer').disabled = active || !list().length;
   for (const prefix of ['', 'grid-']) for (const scope of ['all','favorites','hidden']) $(`${prefix}filter-${scope}`).disabled = busy;
-  $('chat-filter').disabled = $('grid-chat-filter').disabled = busy;
+  notifyFilters();
   gallery.selectionChanged();
 }
 function confirmArchive() {
@@ -565,7 +571,9 @@ async function updateStorage() {
 function snapshotView() {
   const sidebar = sidebarGallery.state();
   filterStates = { ...filterStates, [chatScope()]: { grid: gallery.state(), sidebar } };
-  return { key: account, selectedId, filter, chatFilter, scrollTop: sidebar.scrollTop, sidebarAnchor: sidebar.anchor,
+  const temporary = Object.keys(filterStates).filter(key => key.startsWith('query:'));
+  for (const key of temporary.slice(0, Math.max(0, temporary.length - 32))) delete filterStates[key];
+  return { key: account, selectedId, filter, imageQuery, activeViewId, scrollTop: sidebar.scrollTop, sidebarAnchor: sidebar.anchor,
     transform: { ...transform }, viewMode, sidebarHidden, layout, gridSize, gridState: gallery.state(), filterStates };
 }
 function saveView(immediate = false) {
@@ -584,7 +592,7 @@ async function reloadImages() {
   if (sequence !== reloadSequence || targetAccount !== account) return;
   const previous = list(); images = records; hiddenIds = hidden; refreshChatStates();
   if (images.some(image => image.id === selectedId)) selectedImage = { ...images.find(image => image.id === selectedId) };
-  renderList();
+  renderList(); ensureGeometry();
   reconcileHiddenSelection(previous);
   if (layout === 'viewer' && !selectedId && list().length) await select(list()[0].id);
   await updateStorage();
@@ -595,7 +603,9 @@ async function restoreAccount(identity) {
   singleArchive = false; archiveConfirmation = null; $('archive-confirm').close(); chatQueue.reset(); chatVersion++;
   loadSequence++; reloadSequence++; clearTimeout(saveTimer); restoring = true;
   if (account) await putValue('views', snapshotView());
+  geometryGeneration++; geometryRun = null; geometryChecked = new Set(); geometryStatus = '';
   account = identity.id; images = []; hiddenIds = new Set(); filterStates = {}; promptCache.clear(); editDrafts.clear();
+  imageQuery = emptyQuery(); savedViews = []; activeViewId = null; filterError = ''; viewSaving = false;
   $('edit-prompt').value = ''; resizeEditPrompt();
   selectedId = null; selectedImage = null; width = 0; height = 0;
   clearImageURLs(); mainImage.hidden = true; $('image-error').hidden = true; $('image-loading').hidden = true;
@@ -606,8 +616,11 @@ async function restoreAccount(identity) {
     hiddenIds = await getHiddenIds(account);
     const saved = await getValue('views', account);
     restoredView = saved;
-    chatFilter = ['any','archived','unarchived','unknown'].includes(saved?.chatFilter) ? saved.chatFilter : 'any';
-    $('chat-filter').value = $('grid-chat-filter').value = chatFilter;
+    const definitions = await getValue('settings', 'image-views:' + account);
+    savedViews = normalizeViews(definitions?.views);
+    activeViewId = savedViews.some(view => view.id === saved?.activeViewId) ? saved.activeViewId : null;
+    imageQuery = normalizeQuery(saved?.imageQuery || (['archived','unarchived','unknown'].includes(saved?.chatFilter) ? { mode:'all', rules:[{ id:'legacy-archive', field:'archive', value:saved.chatFilter }] } : emptyQuery()));
+    calendarKey = currentCalendarKey();
     viewMode = saved?.viewMode === 'custom' ? 'custom' : 'fit';
     transform = saved?.transform || { scale: 1, x: 0, y: 0 };
     sidebarHidden = typeof saved?.sidebarHidden === 'boolean' ? saved.sidebarHidden : true;
@@ -616,6 +629,7 @@ async function restoreAccount(identity) {
     gridSize = Object.hasOwn(GRID_SIZES, saved?.gridSize) ? saved.gridSize : 'medium';
     for (const scope of ['all','favorites','hidden']) {
       if (!filterStates[scope + ':any'] && filterStates[scope]) filterStates[scope + ':any'] = filterStates[scope];
+      if (saved?.chatFilter && saved.chatFilter !== 'any' && !saved?.imageQuery && filterStates[scope + ':' + saved.chatFilter]) filterStates[`query:${scope}:${queryKey(imageQuery)}`] = filterStates[scope + ':' + saved.chatFilter];
     }
     updateGridSize();
     renderList(false);
@@ -639,6 +653,7 @@ async function restoreAccount(identity) {
     }
   }).catch(() => {});
   refreshChatStates();
+  notifyFilters(); ensureGeometry();
 }
 function updateEmptyState() {
   $('grid-connect').hidden = online || Boolean(list().length);
@@ -672,20 +687,6 @@ async function refresh() {
   } catch (error) { status(error.message); }
   finally { syncing = false; $('refresh').classList.remove('busy'); $('grid-refresh').classList.remove('busy'); updateEmptyState(); }
 }
-function changeChatFilter(value) {
-  if (bulkJob || chatFilter === value) return;
-  gridSelection.exit(); window.viewerMenus?.close();
-  const previous = list();
-  filterStates[chatScope()] = { grid: gallery.state(), sidebar: sidebarGallery.state() };
-  chatFilter = value; chatVersion++;
-  $('chat-filter').value = $('grid-chat-filter').value = value;
-  renderList(false);
-  gallery.restore(filterStates[chatScope()]?.grid || {}); sidebarGallery.restore(filterStates[chatScope()]?.sidebar || {});
-  reconcileHiddenSelection(previous);
-  saveView(); refreshChatStates();
-}
-$('chat-filter').addEventListener('change', event => changeChatFilter(event.target.value));
-$('grid-chat-filter').addEventListener('change', event => changeChatFilter(event.target.value));
 $('grid-archive-selected').addEventListener('click', confirmArchive);
 $('archive-chat').addEventListener('click', archiveCurrentChat);
 for (const id of ['archive-dismiss','archive-cancel']) $(id).addEventListener('click', () => { archiveConfirmation = null; $('archive-confirm').close(); });
@@ -697,11 +698,135 @@ function changeFilter(value) {
   gridSelection.exit(); window.viewerMenus?.close();
   const previous = list();
   filterStates = { ...filterStates, [chatScope()]: { grid: gallery.state(), sidebar: sidebarGallery.state() } };
-  filter = value; renderList(false);
+  activeViewId = null; filter = value; renderList(false);
   gallery.restore(filterStates[chatScope()]?.grid || {}); sidebarGallery.restore(filterStates[chatScope()]?.sidebar || {});
   reconcileHiddenSelection(previous);
   saveView();
 }
+function currentCalendarKey() { return new Date().toDateString() + ':' + Intl.DateTimeFormat().resolvedOptions().timeZone; }
+new ResizeObserver(entries => {
+  document.documentElement.style.setProperty('--grid-toolbar-height', entries[0].target.getBoundingClientRect().height + 'px');
+}).observe(document.querySelector('.grid-toolbar'));
+function filterState() {
+  const view = savedViews.find(view => view.id === activeViewId);
+  return { account, query:imageQuery, views:savedViews, viewId:activeViewId, dirty:Boolean(view && (view.scope !== filter || queryKey(view.query) !== queryKey(imageQuery))), busy:Boolean(bulkJob || viewSaving), saving:viewSaving, error:filterError, geometry:geometryStatus };
+}
+function notifyFilters() { window.dispatchEvent(new Event('grid-filter-state')); }
+function captureFilterPosition() { filterStates[chatScope()] = { grid:gallery.state(), sidebar:sidebarGallery.state() }; }
+function setImageQuery(value) {
+  if (bulkJob || viewSaving) return;
+  const next = normalizeQuery(value);
+  if (queryKey(next) === queryKey(imageQuery)) return;
+  const previous = list(), gridState = gallery.state(), sidebarState = sidebarGallery.state();
+  captureFilterPosition(); gridSelection.exit(); imageQuery = next; chatVersion++;
+  filterError = ''; renderList(true, true);
+  if (gridState.anchor && !visibleIds.has(gridState.anchor.id)) gallery.restore({});
+  if (sidebarState.anchor && !visibleIds.has(sidebarState.anchor.id)) sidebarGallery.restore({});
+  reconcileHiddenSelection(previous); saveView(); ensureGeometry();
+  if (next.rules.some(rule => rule.field === 'archive')) refreshChatStates();
+}
+function openFilterView(id) {
+  const view = savedViews.find(view => view.id === id);
+  if (!view || bulkJob || viewSaving) return;
+  const previous = list(); captureFilterPosition(); gridSelection.exit();
+  activeViewId = view.id; filter = view.scope; imageQuery = normalizeQuery(view.query); chatVersion++;
+  filterError = ''; renderList(false);
+  gallery.restore(filterStates[chatScope()]?.grid || {}); sidebarGallery.restore(filterStates[chatScope()]?.sidebar || {});
+  reconcileHiddenSelection(previous); saveView(); ensureGeometry(); refreshChatStates();
+}
+async function persistFilterViews(next) {
+  if (!account || viewSaving || bulkJob) return false;
+  const targetAccount = account;
+  viewSaving = true; filterError = ''; notifyFilters();
+  const write = viewWrite.catch(() => {}).then(() => putValue('settings', { key:'image-views:' + targetAccount, views:next }));
+  viewWrite = write;
+  try {
+    await write;
+    if (account !== targetAccount) return false;
+    savedViews = next; return true;
+  } catch (error) {
+    if (account === targetAccount) { filterError = 'View 保存失败：' + error.message; status(filterError); }
+    return false;
+  } finally { if (account === targetAccount) { viewSaving = false; notifyFilters(); } }
+}
+async function saveFilterPosition() {
+  try { await saveView(true); }
+  catch (error) { status('查看位置未能保存：' + error.message); }
+}
+async function saveNewFilterView(name, duplicate = false) {
+  const original = duplicate ? savedViews.find(view => view.id === activeViewId) : null;
+  const error = viewNameError(name, savedViews);
+  if (error) { filterError = error; notifyFilters(); return; }
+  const view = { id:crypto.randomUUID(), name:name.trim(), scope:original?.scope || filter, query:normalizeQuery(original?.query || imageQuery) };
+  const state = { grid:gallery.state(), sidebar:sidebarGallery.state() };
+  if (!await persistFilterViews([...savedViews,view])) return;
+  filterStates[`view:${view.id}:${view.scope}`] = state; openFilterView(view.id); window.viewerMenus?.close();
+  await saveFilterPosition();
+}
+async function updateFilterView(name) {
+  const original = savedViews.find(view => view.id === activeViewId);
+  if (!original) return;
+  const error = name === undefined ? '' : viewNameError(name, savedViews, original.id);
+  if (error) { filterError = error; notifyFilters(); return; }
+  const next = savedViews.map(view => view.id !== original.id ? view : name === undefined ? { ...view, scope:filter, query:normalizeQuery(imageQuery) } : { ...view, name:name.trim() });
+  if (await persistFilterViews(next)) { await saveFilterPosition(); notifyFilters(); window.viewerMenus?.close(); }
+}
+function leaveFilterView() {
+  if (bulkJob || viewSaving || !activeViewId) return;
+  captureFilterPosition(); activeViewId = null; saveView(); notifyFilters();
+}
+async function deleteFilterView() {
+  const id = activeViewId;
+  if (!id || !await persistFilterViews(savedViews.filter(view => view.id !== id))) return;
+  leaveFilterView();
+  for (const key of Object.keys(filterStates)) if (key.startsWith(`view:${id}:`)) delete filterStates[key];
+  await saveFilterPosition(); notifyFilters(); window.viewerMenus?.close();
+}
+async function ensureGeometry() {
+  if (!account || geometryRun || bulkJob || !imageQuery.rules.some(rule => ['ratio','direction'].includes(rule.field))) return;
+  const ids = images.filter(image => !(image.width > 0 && image.height > 0) && !geometryChecked.has(image.id)).map(image => image.id);
+  if (!ids.length) return;
+  const job = { account, generation:geometryGeneration }; geometryRun = job; geometryStatus = 'working'; notifyFilters();
+  try {
+    for (let offset = 0; offset < ids.length; offset += 32) {
+      if (account !== job.account || job.generation !== geometryGeneration || bulkJob || !imageQuery.rules.some(rule => ['ratio','direction'].includes(rule.field))) break;
+      const batch = ids.slice(offset,offset + 32), result = await imageGeometry(job.account,batch);
+      if (account !== job.account || job.generation !== geometryGeneration) return;
+      for (const id of batch) geometryChecked.add(id);
+      if (result.length) {
+        const previous = list(), geometry = new Map(result.map(row => [row.id,row]));
+        images = images.map(image => geometry.has(image.id) ? { ...image, width:geometry.get(image.id).width, height:geometry.get(image.id).height } : image);
+        renderList(true,true); reconcileHiddenSelection(previous);
+      }
+      // Yield between bounded native property reads; current-image reads keep priority.
+      await new Promise(resolve => setTimeout(resolve,20));
+    }
+    if (account === job.account && job.generation === geometryGeneration) geometryStatus = '';
+  } catch { if (account === job.account && job.generation === geometryGeneration) geometryStatus = 'failed'; }
+  finally {
+    if (geometryRun === job) { geometryRun = null; notifyFilters(); renderList(); }
+  }
+}
+window.gridFilterBridge = {
+  state:filterState, setQuery:setImageQuery,
+  putRule(rule) {
+    if (!validRule(rule)) return;
+    const opposite = rule.field === 'ratio' ? 'direction' : rule.field === 'direction' ? 'ratio' : null;
+    const existing = imageQuery.rules.filter(row => row.field !== opposite);
+    const rules = existing.some(row => row.id === rule.id) ? existing.map(row => row.id === rule.id ? rule : row) : [...existing,rule];
+    setImageQuery({ ...imageQuery,rules });
+  },
+  removeRule(id) { setImageQuery({ ...imageQuery, rules:imageQuery.rules.filter(rule => rule.id !== id) }); },
+  openView:openFilterView, saveNew:name => saveNewFilterView(name), duplicateView:name => saveNewFilterView(name,true),
+  updateView:() => updateFilterView(), renameView:updateFilterView, restoreView:() => openFilterView(activeViewId), deleteView:deleteFilterView, leaveView:leaveFilterView,
+  retryGeometry() { geometryChecked.clear(); geometryStatus = ''; ensureGeometry(); },
+};
+setInterval(() => {
+  const key = currentCalendarKey();
+  if (calendarKey === key || !account || bulkJob) return;
+  const previous = list(); calendarKey = key; chatVersion++;
+  renderList(true,true); reconcileHiddenSelection(previous);
+},1000);
 $('filter-all').addEventListener('click', () => changeFilter('all'));
 $('filter-favorites').addEventListener('click', () => changeFilter('favorites'));
 $('grid-filter-all').addEventListener('click', () => changeFilter('all'));
@@ -917,6 +1042,7 @@ if (extension?.runtime?.onMessage) extension.runtime.onMessage.addListener(messa
       thumbnailCache.invalidatePreview(account, message.id);
     }
     gallery.refreshPreview(message.id); sidebarGallery.refreshPreview(message.id);
+    geometryChecked.delete(message.id); ensureGeometry();
   } else if (message.event === 'chat-states') {
     chatQueue.set(message.rows || []); chatStatesChanged();
   } else if (message.event === 'hidden-updated') {

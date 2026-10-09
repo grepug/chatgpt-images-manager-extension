@@ -3,6 +3,38 @@ import ImageIO
 import UniformTypeIdentifiers
 
 extension NativeStore {
+    // Read only image properties: no raster decode, thumbnails, or original-byte transfer.
+    func imageGeometry(_ request: [String:Any]) throws -> Any {
+        guard let account = request["account"] as? String, !account.isEmpty,
+            let ids = request["ids"] as? [String], ids.count <= 32,
+            ids.allSatisfy({ !$0.isEmpty && $0.count <= 512 }) else { throw StoreFailure.invalid }
+        let hints = request["hints"] as? [[String:Any]] ?? []
+        var rows = [[String:Any]]()
+        try transaction {
+            for id in Set(ids) {
+                guard var row = try get("images","\(account):\(id)"), row["account"] as? String == account else { continue }
+                var width = (row["width"] as? NSNumber)?.doubleValue ?? 0, height = (row["height"] as? NSNumber)?.doubleValue ?? 0
+                if !(width > 0 && height > 0) {
+                    if let info = try get("assetInfo","\(account):\(id):original"), info["account"] as? String == account,
+                        let digest = info["digest"] as? String {
+                        let file = root.appendingPathComponent("originals").appendingPathComponent(Self.hash("\(account):\(id):original:" + digest))
+                        guard let source = CGImageSourceCreateWithURL(file as CFURL,[kCGImageSourceShouldCache:false] as CFDictionary),
+                            let properties = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
+                            let w = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+                            let h = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue else { throw StoreFailure.integrity }
+                        let rotated = [5,6,7,8].contains(properties[kCGImagePropertyOrientation] as? Int ?? 1)
+                        width = rotated ? h : w; height = rotated ? w : h
+                    } else if let hint = hints.first(where: { $0["id"] as? String == id }) {
+                        width = (hint["width"] as? NSNumber)?.doubleValue ?? 0; height = (hint["height"] as? NSNumber)?.doubleValue ?? 0
+                    }
+                    guard width.isFinite && height.isFinite && width > 0 && height > 0 else { continue }
+                    row["width"] = width; row["height"] = height; try put("images",row)
+                }
+                rows.append(["id":id,"width":width,"height":height])
+            }
+        }
+        return rows
+    }
     // Downsample beside the persistent original. Rebuildable files live in Caches;
     // only the resulting thumbnail crosses Safari's bounded messaging channel.
     func thumbnailInfo(_ request: [String:Any]) throws -> Any {

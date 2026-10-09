@@ -3,46 +3,10 @@ import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import * as Menu from '@radix-ui/react-dropdown-menu';
-import { menuStackLayout } from '../extension/viewer-layout.js';
+import { roots, layoutMenus, Icon, Card, Branch } from './menu-components.jsx';
+import { GridFilters } from './grid-filters.jsx';
 
 const $ = id => document.getElementById(id);
-const roots = new Set();
-let layoutFrame;
-function layoutMenus() {
-  cancelAnimationFrame(layoutFrame);
-  layoutFrame = requestAnimationFrame(() => {
-    const cards = [...document.querySelectorAll('.component-menu')].sort((a,b) => +a.dataset.depth - +b.dataset.depth);
-    if (!cards.length) return;
-    const surface = $(cards[0].dataset.rootTrigger === 'grid-toggle-actions' ? 'grid-view' : 'viewer').getBoundingClientRect();
-    const stacked = cards.reduce((total,node) => total + (node.dataset.form ? 300 : 232), 0) + 6 * cards.length > surface.width - 16;
-    document.body.classList.toggle('component-menu-stacked', stacked);
-    for (const card of cards) {
-      card.parentElement.classList.toggle('stacked-menu-position', stacked);
-      if (!stacked) {
-        for (const name of ['left','top','width']) card.parentElement.style.removeProperty(name);
-        card.style.removeProperty('max-height');
-      }
-    }
-    if (!stacked) return;
-    const trigger = $(cards[0].dataset.rootTrigger).getBoundingClientRect();
-    const positions = menuStackLayout({ surface, trigger, windowHeight: innerHeight,
-      heights: cards.map(card => card.scrollHeight + 2), widths: cards.map(card => card.dataset.form ? 300 : 232) });
-    cards.forEach((card,index) => {
-      const { x, y, width, height } = positions[index];
-      Object.assign(card.parentElement.style, { left: `${x}px`, top: `${y}px`, width: `${width}px` });
-      card.style.maxHeight = `${height}px`;
-      // Keep the open branch visible when an ancestor becomes scrollable.
-      const selected = card.querySelector('[aria-expanded="true"]');
-      if (selected && card.dataset.lastBudget !== `${height}:${selected.id}`) {
-        card.dataset.lastBudget = `${height}:${selected.id}`;
-        const row = selected.getBoundingClientRect(), box = card.getBoundingClientRect();
-        if (row.bottom > box.bottom - 5) card.scrollTop += row.bottom - box.bottom + 5;
-        if (row.top < box.top + 5) card.scrollTop -= box.top + 5 - row.top;
-      }
-    });
-  });
-}
-const Icon = ({ name }) => <svg className="icon" aria-hidden="true"><use href={`#icon-${name}`}/></svg>;
 function Action({ id, label, icon, shortcut }) {
   const node = $(id);
   if (node?.hidden) return null;
@@ -50,32 +14,6 @@ function Action({ id, label, icon, shortcut }) {
     onSelect={() => window.viewerMenuBridge.action(id)}>
     {icon && <Icon name={icon}/>}<span>{label || node?.querySelector('span')?.textContent.trim() || node?.textContent.trim()}</span>{shortcut && <kbd>{shortcut}</kbd>}
   </Menu.Item>;
-}
-function Card({ depth, rootTrigger, form, children, ...props }) {
-  useLayoutEffect(() => { layoutMenus(); return layoutMenus; });
-  const Component = depth ? Menu.SubContent : Menu.Content;
-  return <Menu.Portal><Component className="component-menu" data-depth={depth} data-root-trigger={rootTrigger}
-    data-form={form || undefined} sideOffset={6} collisionPadding={8} align="end" loop
-    onCloseAutoFocus={event => event.preventDefault()} {...props}>{children}</Component></Menu.Portal>;
-}
-function Branch({ label, icon, id, depth, children, form, rootTrigger='toggle-more' }) {
-  const [open,setOpen] = useState(false);
-  useEffect(() => { layoutMenus(); },[open]);
-  return <Menu.Sub open={open} onOpenChange={setOpen}>
-    <Menu.SubTrigger className="component-item" data-branch={id} onPointerLeave={event => {
-      // Portalled descendants can be entered in one fast pointer movement.
-      // Keep that explicit transition and vertical gaps outside the horizontal
-      // grace polygon. Other items still dismiss through Radix focus handling.
-      const destination = event.relatedTarget?.closest?.('.component-menu');
-      if (open && (document.body.classList.contains('component-menu-stacked')
-        || destination && Number(destination.dataset.depth) >= depth)) event.preventDefault();
-    }}>
-      <Icon name={icon}/><span>{label}</span><span className="component-chevron">›</span>
-    </Menu.SubTrigger>
-    <Card depth={depth} rootTrigger={rootTrigger} form={form}>
-      {children}
-    </Card>
-  </Menu.Sub>;
 }
 function Embedded({ id }) {
   const ref = React.useRef(null);
@@ -178,3 +116,6 @@ for (const options of [{},{zoom:true},{grid:true}]) {
   flushSync(() => createRoot(host).render(<Dropdown {...options}/>));
 }
 window.addEventListener('resize',layoutMenus);
+
+const filterHost = $('grid-filter-controls');
+flushSync(() => createRoot(filterHost).render(<GridFilters/>));

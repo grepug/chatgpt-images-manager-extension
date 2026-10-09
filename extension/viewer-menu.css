@@ -2,6 +2,9 @@
 .component-menu-mount{display:inline-flex}
 .component-menu{width:232px;max-width:calc(100vw - 16px);max-height:var(--radix-dropdown-menu-content-available-height);overflow:auto;overscroll-behavior:contain;padding:5px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);box-shadow:0 8px 28px #0002;z-index:20;outline:none;pointer-events:auto;font:12px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
 .component-menu[data-form]{width:300px}
+.component-menu[data-state=open]{animation:component-menu-enter .1s ease-out}
+@keyframes component-menu-enter{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.component-menu[data-state=open]{animation:none}}
 .component-item{display:flex;align-items:center;gap:9px;min-height:31px;padding:6px 9px;border-radius:5px;outline:none;cursor:default;user-select:none}
 .component-item>span:first-of-type{flex:1}
 .component-item .icon{width:16px;height:16px;flex:none}

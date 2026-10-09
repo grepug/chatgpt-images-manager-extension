@@ -210,4 +210,37 @@ final class StorageTests: XCTestCase {
         }
         XCTAssertEqual((try s.handle(["op":"verify-assets"]) as! [String:Int])["verified"],2)
     }
+    func testGeometryReadsPropertiesWithoutCreatingThumbnailFilesOrChangingFlags() throws {
+        let s = try store("geometry")
+        let context = CGContext(data:nil,width:900,height:1600,bitsPerComponent:8,bytesPerRow:0,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let data = NSMutableData(), encoder = CGImageDestinationCreateWithData(data,UTType.png.identifier as CFString,1,nil)!
+        CGImageDestinationAddImage(encoder,context.makeImage()!,nil); XCTAssertTrue(CGImageDestinationFinalize(encoder))
+        try s.put("images",["key":"account:a","account":"account","id":"a","favorite":true,"deleted":true])
+        try s.put("hidden",["key":"account","ids":["a"]])
+        let original = try write(s,id:"a",bytes:data as Data)
+        let request: [String:Any] = ["op":"image-geometry","account":"account","ids":["a","missing","a"],"hints":[["id":"a","width":4,"height":3]]]
+        let rows = try s.handle(request) as! [[String:Any]]
+        XCTAssertEqual(rows.count,1); XCTAssertEqual(rows[0]["width"] as? Double,900); XCTAssertEqual(rows[0]["height"] as? Double,1600)
+        XCTAssertEqual(try s.get("images","account:a")?["favorite"] as? Bool,true)
+        XCTAssertEqual(try s.get("images","account:a")?["deleted"] as? Bool,true)
+        XCTAssertEqual(try s.get("hidden","account")?["ids"] as? [String],["a"])
+        XCTAssertEqual(try s.get("assetInfo","account:a:original")?["digest"] as? String,original["digest"] as? String)
+        XCTAssertFalse(FileManager.default.fileExists(atPath:s.cacheRoot.path))
+        let reopened = try store("geometry")
+        XCTAssertEqual(try reopened.get("images","account:a")?["width"] as? Double,900)
+        XCTAssertEqual((try reopened.handle(request) as! [[String:Any]]).count,1)
+    }
+    func testGeometryUsesThumbnailHintsOnlyWithinTheRequestedAccountAndPreservesKnownDimensions() throws {
+        let s = try store("geometry-hints")
+        try s.put("images",["key":"account:a","account":"account","id":"a"])
+        try s.put("images",["key":"account:b","account":"account","id":"b","width":100,"height":200])
+        try s.put("images",["key":"other:a","account":"other","id":"a"])
+        let rows = try s.handle(["op":"image-geometry","account":"account","ids":["a","b","c"],"hints":[["id":"a","width":16,"height":9],["id":"b","width":7,"height":3],["id":"c","width":3,"height":4]]]) as! [[String:Any]]
+        XCTAssertEqual(rows.count,2)
+        XCTAssertEqual(try s.get("images","account:a")?["width"] as? Double,16)
+        XCTAssertEqual(try s.get("images","account:b")?["width"] as? Int,100)
+        XCTAssertNil(try s.get("images","other:a")?["width"])
+        XCTAssertNil(try s.get("images","account:c"))
+        XCTAssertThrowsError(try s.handle(["op":"image-geometry","account":"account","ids":Array(repeating:"a",count:33)]))
+    }
 }
