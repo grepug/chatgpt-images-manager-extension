@@ -118,6 +118,7 @@ final class NativeStore {
         switch op {
         case "thumbnail-info": return try thumbnailInfo(request)
         case "thumbnail-read": return try thumbnailRead(request)
+        case "image-geometry": return try imageGeometry(request)
         case "export-location": return root.deletingLastPathComponent().path
         case "export-profile": return root.lastPathComponent
         case "verify-page", "migration-receipt-page":

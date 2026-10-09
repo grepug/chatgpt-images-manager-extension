@@ -45,6 +45,23 @@ export async function getImages(account) {
   if (!native) return legacy.getImages(account);
   return (await allValues('images')).filter(image => image.account === account);
 }
+export async function imageGeometry(account, ids) {
+  if (!account || !Array.isArray(ids) || ids.length > 32 || ids.some(id => typeof id !== 'string' || !id)) throw new Error('无效的尺寸查询');
+  const hints = (await Promise.all(ids.map(id => legacy.getValue('assetInfo', `${account}:${id}:thumbnail`))))
+    .filter(info => info?.sourceWidth > 0 && info?.sourceHeight > 0)
+    .map(info => ({ id:info.id, width:info.sourceWidth, height:info.sourceHeight }));
+  if (native) return nativeRequest('image-geometry', { account, ids, hints });
+  const rows = [];
+  for (const id of ids) {
+    const image = await legacy.getValue('images', `${account}:${id}`);
+    if (!image || image.account !== account) continue;
+    const dimensions = image.width > 0 && image.height > 0 ? image : hints.find(row => row.id === id);
+    if (!dimensions) continue;
+    if (!(image.width > 0 && image.height > 0)) await legacy.updateValue('images', image.key, { width:dimensions.width, height:dimensions.height });
+    rows.push({ id, width:dimensions.width, height:dimensions.height });
+  }
+  return rows;
+}
 export async function assetMetadata(account) {
   if (!native) return legacy.assetMetadata(account);
   const originals = (await allValues('assetInfo')).filter(asset => asset.kind === 'original');
