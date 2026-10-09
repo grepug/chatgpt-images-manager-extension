@@ -54,10 +54,11 @@ for(const width of [1280,800,580,390,320]){
  ab('set','viewport',String(width),'720');await wait(120);const before=q();ab('click','#grid-select');await wait(180);const after=q();
  check(before.toolbar.h===after.toolbar.h&&Math.abs(before.scroll-after.scroll)<1,`Toolbar and scroll stay stable at ${width}px`);
  check(after.tools.right<=width+.5&&after.tools.x>=0,`Toolbar fits at ${width}px`);
- if(width===320){ab('click','#grid-toggle-actions');await wait(100);check(ev("(()=>{const r=document.querySelector('.component-menu').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+.5})()"),'Compact menu fits narrow viewport');ab('press','Escape');}
- ab('click','#grid-selection-done');
+ check(ev("[...document.querySelectorAll('#grid-selection-tools > *')].every(n=>{const r=n.getBoundingClientRect();return r.width===0||r.left>=0&&r.right<=innerWidth+.5})"),`Every selection action fits at ${width}px`);
+ if(width===320){ab('click','#grid-toggle-actions');await wait(100);check(ev("(()=>{const r=document.querySelector('.component-menu').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+.5})()"),'Compact menu fits narrow viewport');ab('press','Escape');await wait(180);}
+ ab('click','#grid-selection-done');await wait(180);check(!q().active,`Done exits selection at ${width}px`);
 }
-ab('set','viewport','1280','800');await wait(120);ab('click','#grid-select');ab('click','[data-id=fixture-0] .grid-open');
+ab('set','viewport','1280','800');await wait(250);ab('find','role','button','click','--name','多选图片','--exact');ab('click','[data-id=fixture-0] .grid-open');
 await ev(`(async()=>{const db=await import('/db.js');const connection=await db.database();window.originalTransaction=connection.transaction.bind(connection);connection.transaction=(stores,mode,...args)=>{const tx=window.originalTransaction(stores,mode,...args);if(mode==='readwrite'&&stores.includes('hidden')){const original=tx.objectStore.bind(tx);tx.objectStore=name=>{const store=original(name);if(name==='images')store.put=()=>{throw new Error('测试磁盘写入失败')};return store;};}return tx;};return true;})()`);
 ab('click','#grid-toggle-actions');await wait(60);ab('click','[data-action=grid-unfavorite-selected]');await idle();
 check(q().count==='已选 1 张'&&q().toast.includes('1 张失败'),'Storage failure retains selection with direct failure Toast');

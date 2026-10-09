@@ -8,7 +8,8 @@ function ev(code) {
 }
 const wait = ms => new Promise(resolve=>setTimeout(resolve,ms));
 let checks=[];
-function check(value,label) { if(!value) throw Error(label+'\n'+JSON.stringify(ev("({count:document.getElementById('grid-selection-count').textContent,toast:document.getElementById('status-text').textContent,calls:window.archiveCalls,clicks:window.gridClicks,filter:document.getElementById('grid-chat-filter').value})"))); checks.push(label); }
+function check(value,label) { if(!value) throw Error(label+'\n'+JSON.stringify(ev("({count:document.getElementById('grid-selection-count').textContent,toast:document.getElementById('status-text').textContent,calls:window.archiveCalls,clicks:window.gridClicks,query:window.gridFilterBridge.state().query})"))); checks.push(label); }
+function scope(value) { ev("window.gridFilterBridge.setQuery({mode:'all',rules:" + (value === 'any' ? '[]' : "[{id:'archive-test',field:'archive',value:'" + value + "'}]") + "});true"); }
 async function until(code) { for(let i=0;i<100;i++){if(ev(code))return;await wait(50);}throw Error('Timed out: '+code); }
 const selected = () => ev("document.getElementById('grid-selection-count').textContent");
 const badge = id => ev("document.querySelector('[data-id=fixture-"+id+"] .chat-archive-badge')?.dataset.state");
@@ -48,11 +49,11 @@ try {
   check(badge(2)==='archived'&&badge(4)==='archived','Unselected pictures in the same chats synchronize');
   check(ev("document.getElementById('status-text').textContent.includes('已归档 1 个聊天')&&document.getElementById('status-text').textContent.includes('跳过已归档 1 个')"),'Toast reports success and skip separately');
   check(ev("[...window.cachedArchiveImages].every(([id,r])=>{const n=document.querySelector('[data-id='+id+']');return n===r.node&&n.querySelector('img')===r.img&&n.querySelector('img').src===r.src})"),'Chat state updates preserve card nodes and image URLs');
-  ab('click','#grid-selection-done');ab('select','#grid-chat-filter','archived');await wait(300);
+  ab('click','#grid-selection-done');scope('archived');await wait(300);
   check(ev("document.getElementById('grid-all-count').textContent==='6'"),'Archived filter shows all images of archived chats');
-  ab('select','#grid-chat-filter','unarchived');await wait(300);
+  scope('unarchived');await wait(300);
   check(ev("document.getElementById('grid-all-count').textContent==='6'"),'Unarchived filter excludes archived chats');
-  ab('select','#grid-chat-filter','any');await wait(300);
+  scope('any');await wait(300);
   await choose([6,9]);check(selected()==='已选 2 张','Two different chats are selected before failure');ev("localStorage.setItem('previewArchiveFail','c2');true");await confirm();await idle();
   check(selected()==='已选 2 张','Failure and unprocessed chat pictures remain selected');
   check(ev("document.getElementById('status-text').textContent.includes('1 个失败')&&document.getElementById('status-text').textContent.includes('1 个未处理')"),'Failure does not claim completion');
@@ -69,13 +70,13 @@ try {
   ab('click','#toggle-more');await wait(100);ab('click','[data-action=archive-chat]');
   await until("document.getElementById('archive-chat').querySelector('span').textContent==='所在聊天已归档'");
   check(ev("document.getElementById('archive-chat').disabled"),'Single-image archive updates its menu without a batch confirmation');
-  ab('click','#toggle-sidebar');ab('select','#chat-filter','archived');await wait(350);
+  ab('click','#toggle-sidebar');scope('archived');await wait(350);
   check(ev("(()=>{const badges=[...document.querySelectorAll('.virtual-thumbnail .chat-archive-badge')];return badges.length>0&&badges.every(b=>getComputedStyle(b).display==='none')})()"),'Archived thumbnail sidebar also omits status badges');
   ab('reload');await until("document.getElementById('main-image').naturalWidth>0&&!document.getElementById('main-image').hidden");
-  check(ev("document.getElementById('image-title').textContent==='柔和的光影'&&document.getElementById('chat-filter').value==='archived'"),'Reopening a filtered viewer restores its saved image after cached chat states load');
-  ab('select','#chat-filter','unarchived');await wait(300);
+  check(ev("document.getElementById('image-title').textContent==='柔和的光影'&&window.gridFilterBridge.state().query.rules[0]?.value==='archived'"),'Reopening a filtered viewer restores its saved image after cached chat states load');
+  scope('unarchived');await wait(300);
   check(ev("document.getElementById('main-image').hidden&&!document.getElementById('empty-state').hidden"),'An empty chat filter clears the old viewer image');
-  ab('select','#chat-filter','any');
+  scope('any');
   ab('mouse','move','600','400');
   ab('click','#return-grid');
   for(const width of [1280,800,580,390,320]){
