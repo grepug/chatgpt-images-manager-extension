@@ -38,16 +38,21 @@ export async function nativeDescribeEdit(input) {
       const account = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
       if (account !== input.account) throw new Error('ChatGPT 账号已切换，请刷新图片库。');
       const native = require('no'), composer = require('Ow'), submit = require('RW7').d, route = require('jA').c;
-      // The website shifted these exports together. Check the constructor's
-      // contract and its paired state before invoking any mutable operation.
+      // Discover the constructor by its verified contract, not its minified name.
+      // Aliases share one function; distinct matches are ambiguous and fail closed.
+      const constructors = [...new Set(Object.values(native))].filter(create => {
+        if (typeof create !== 'function') return false;
+        const source = create.toString().replace(/\s/g, '');
+        return create.length === 1 && source.includes('arguments.length>1') &&
+          source.includes('arguments[1]') && source.includes('.get(') && source.includes('||') && /,[$\w]+;?}$/.test(source);
+      });
+      // State exports can shift independently. Keep only verified state layouts;
+      // an unknown layout must never be guessed from arbitrary array-valued atoms.
       const bindings = [
-        { create: native.hb, saved: native.j, localIds: native.k },
-        { create: native.ib, saved: native.k, localIds: native.l }
+        { create: constructors[0], saved: native.j, localIds: native.k },
+        { create: constructors[0], saved: native.k, localIds: native.l }
       ].filter(binding => {
-        if (typeof binding.create !== 'function' || !binding.saved || !binding.localIds) return false;
-        const source = binding.create.toString().replace(/\s/g, '');
-        if (binding.create.length !== 1 || !source.includes('arguments.length>1') ||
-            !source.includes('arguments[1]') || !source.includes('.get(') || !source.includes('||') || !/,[$\w]+;?}$/.test(source)) return false;
+        if (constructors.length !== 1 || !binding.saved || !binding.localIds) return false;
         try { return Array.isArray(scope.get(binding.localIds)); } catch { return false; }
       });
       if (bindings.length !== 1 || typeof composer.P !== 'function' || typeof route !== 'function' ||

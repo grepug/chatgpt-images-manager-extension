@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { nativeDescribeEdit } from '../extension/native-edit.js';
 
-async function fixture({ legacy = false, unsupported = false, targetId = legacy ? 'local-edit' : 'local-chatgpt:11111111-2222-4333-8444-555555555555', reject = false, modelReady = true } = {}) {
+async function fixture({ legacy = false, latest = false, renamed = false, ambiguous = false, unsupported = false, targetId = legacy ? 'local-edit' : 'local-chatgpt:11111111-2222-4333-8444-555555555555', reject = false, modelReady = true } = {}) {
   const calls = [], root = {}, saved = {}, localIds = {}, state = { ids: [], saved: false };
   const scope = { scope: root,
     get(atom) {
@@ -23,8 +23,13 @@ async function fixture({ legacy = false, unsupported = false, targetId = legacy 
   }
   // Same old export key, different three-argument operation after the site update.
   function shifted(e, id, operation) { calls.push({ op: 'wrong-export' }); return operation; }
-  const native = legacy ? { ib: create, k: saved, l: localIds } : { hb: create, ib: shifted, j: saved, k: localIds };
+  const native = latest ? { hb: shifted, ib: create, j: saved, k: localIds } : legacy ? { ib: create, k: saved, l: localIds } : { hb: create, ib: shifted, j: saved, k: localIds };
   if (unsupported) native[legacy ? 'ib' : 'hb'] = shifted;
+  if (renamed) { delete native.hb; delete native.ib; native.Xb = create; native.Yb = create; }
+  if (ambiguous) native.Zb = function other(e) {
+    const id = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : targetId;
+    return e.get('conversation', id) || e.set('conversation', id, {}), id;
+  };
   const image = { src: 'file-image', status: 'completed' };
   const submit = async (e, args) => {
     const { sourceConversationId, isSubmissionCurrent } = args;
@@ -69,6 +74,37 @@ test('previous website exports remain supported with their matching state atoms'
   const { run, input, calls } = await fixture({ legacy: true });
   assert.equal((await run(input)).submitted, true);
   assert.equal(calls.some(call => call.op === 'wrong-export'), false);
+});
+test('updated website constructor with unchanged state exports is submission-ready', async () => {
+  const { run, input, calls } = await fixture({ latest: true });
+  const result = await run({ ...input, dryRun: true });
+  assert.equal(result.submissionReady, true, result.error);
+  assert.deepEqual(calls.map(call => call.op), ['conversation']);
+});
+test('constructor export renaming and duplicate aliases do not break submission', async () => {
+  const { run, input, calls } = await fixture({ renamed: true });
+  assert.equal((await run(input)).submitted, true);
+  assert.equal(calls.filter(call => call.op === 'create').length, 1);
+});
+test('ambiguous constructor contracts fail before creating or submitting anything', async () => {
+  const { run, input, calls } = await fixture({ ambiguous: true });
+  const result = await run(input);
+  assert.equal(result.dispatched, false);
+  assert.match(result.error, /新会话接口已更新/);
+  assert.deepEqual(calls, []);
+});
+test('updated website exports submit once and clean only their own local conversation on failure', async () => {
+  const successful = await fixture({ latest: true });
+  assert.equal((await successful.run(successful.input)).submitted, true);
+  assert.deepEqual(successful.calls.map(call => call.op), ['conversation', 'create', 'model', 'submit', 'navigate']);
+  assert.equal(successful.calls.some(call => call.op === 'wrong-export'), false);
+  const failed = await fixture({ latest: true, reject: true });
+  failed.state.ids.push('existing-chat');
+  const result = await failed.run(failed.input);
+  assert.equal(result.dispatched, true);
+  assert.deepEqual(failed.state.ids, ['existing-chat']);
+  await failed.run(failed.input);
+  assert.equal(failed.calls.filter(call => call.op === 'submit').length, 1);
 });
 test('dry run validates submission bindings but creates no conversation or edit', async () => {
   const { run, input, calls } = await fixture();
