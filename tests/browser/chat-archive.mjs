@@ -29,7 +29,15 @@ try {
   await ev("(async()=>{const db=await import('/db.js');const images=await db.getImages('preview-account');await db.mergeLibrary('preview-account',images.map((x,i)=>({...x,conversationId:'c'+Math.floor(Number(x.id.split('-')[1])/3)})));await db.putValue('conversations',{key:'preview-account:c1',id:'c1',account:'preview-account',archived:true,checkedAt:Date.now()});window.dispatchEvent(new Event('preview-library-event'));window.archiveCalls=[];window.addEventListener('preview-archive-chat',e=>window.archiveCalls.push(e.detail.id));return true;})()");
   await until("document.querySelector('[data-id=fixture-3] .chat-archive-badge')?.dataset.state==='archived'");
   await until("[...document.querySelectorAll('.grid-image')].every(i=>i.naturalWidth>0)");
-  check(badge(0)==='unarchived'&&badge(3)==='archived','Every card displays verified archived or unarchived chat state');
+  check(badge(0)==='unarchived'&&badge(3)==='archived','Every card retains verified archived or unarchived chat state');
+  check(ev("(()=>{const b=document.querySelector('[data-id=fixture-0] .chat-archive-badge');return !b.hidden&&!b.textContent&&b.querySelector('use').getAttribute('href')==='#icon-chat'&&b.title.includes('聊天未归档')})()"),'Unarchived state uses a compact icon with a readable tooltip');
+  check(ev("(()=>{const n=document.querySelector('[data-id=fixture-3]');return getComputedStyle(n.querySelector('.chat-archive-badge')).display==='none'&&n.querySelector('.grid-open').getAttribute('aria-label').includes('聊天已归档')&&n.getBoundingClientRect().width>0})()"),'Archived badge is hidden while its image and accessible status remain');
+  await ev("(async()=>{const db=await import('/db.js');await db.putValue('conversations',{key:'preview-account:c0',id:'c0',account:'preview-account',archived:false,checkedAt:Date.now(),error:'读取失败',errorAt:Date.now()});return true;})()");
+  ab('reload');await until("document.querySelector('[data-id=fixture-0] .chat-archive-badge')?.dataset.state==='unknown'");
+  check(ev("(()=>{const b=document.querySelector('[data-id=fixture-0] .chat-archive-badge');return !b.hidden&&!b.textContent&&b.querySelector('use').getAttribute('href')==='#icon-info'&&b.title.includes('归档状态未能确认')})()"),'Unknown state uses a distinct icon without claiming unarchived');
+  await ev("(async()=>{const db=await import('/db.js');await db.putValue('conversations',{key:'preview-account:c0',id:'c0',account:'preview-account',archived:false,checkedAt:Date.now()});return true;})()");
+  ab('reload');await until("document.querySelector('[data-id=fixture-0] .chat-archive-badge')?.dataset.state==='unarchived'");
+  ev("window.archiveCalls=[];window.addEventListener('preview-archive-chat',e=>window.archiveCalls.push(e.detail.id));true");
   ev("window.cachedArchiveImages=new Map([...document.querySelectorAll('.grid-card')].map(n=>[n.dataset.id,{node:n,img:n.querySelector('img'),src:n.querySelector('img').src}]));true");
   await choose([0,1,3]);ab('click','#grid-archive-selected');await until("document.getElementById('archive-confirm').open");
   check(ev("document.getElementById('archive-summary').textContent.includes('3 张图片，涉及 2 个聊天')"),'Confirmation distinguishes image count from deduplicated chat count');
@@ -62,6 +70,7 @@ try {
   await until("document.getElementById('archive-chat').querySelector('span').textContent==='所在聊天已归档'");
   check(ev("document.getElementById('archive-chat').disabled"),'Single-image archive updates its menu without a batch confirmation');
   ab('click','#toggle-sidebar');ab('select','#chat-filter','archived');await wait(350);
+  check(ev("(()=>{const badges=[...document.querySelectorAll('.virtual-thumbnail .chat-archive-badge')];return badges.length>0&&badges.every(b=>getComputedStyle(b).display==='none')})()"),'Archived thumbnail sidebar also omits status badges');
   ab('reload');await until("document.getElementById('main-image').naturalWidth>0&&!document.getElementById('main-image').hidden");
   check(ev("document.getElementById('image-title').textContent==='柔和的光影'&&document.getElementById('chat-filter').value==='archived'"),'Reopening a filtered viewer restores its saved image after cached chat states load');
   ab('select','#chat-filter','unarchived');await wait(300);

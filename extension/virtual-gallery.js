@@ -140,7 +140,11 @@ export class VirtualGallery {
     const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.decoding = 'async';
     img.className = this.sidebar ? 'thumbnail-image' : 'grid-image';
     const title = document.createElement('span'); title.className = this.sidebar ? 'thumbnail-title' : 'grid-card-title';
-    const archiveBadge = document.createElement('span'); archiveBadge.className = 'chat-archive-badge'; open.append(archiveBadge);
+    const archiveBadge = document.createElement('span'); archiveBadge.className = 'chat-archive-badge';
+    const archiveIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    archiveIcon.setAttribute('class', 'icon'); archiveIcon.setAttribute('aria-hidden', 'true');
+    const archiveGlyph = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    archiveIcon.append(archiveGlyph); archiveBadge.append(archiveIcon); open.append(archiveBadge);
     open.append(img, title); open.addEventListener('click', event => {
       if (this.selection?.active) this.selectImage(image.id, event.shiftKey);
       else this.openImage(image.id);
@@ -225,10 +229,10 @@ export class VirtualGallery {
       const { node, open, title, star, hide, locate, archiveBadge } = record;
       const state = this.chatState?.(image.conversationId);
       archiveBadge.dataset.state = chatStatus(state);
-      archiveBadge.textContent = { archived: '已归档', unarchived: '未归档', unknown: '待确认' }[chatStatus(state)];
+      archiveBadge.querySelector('use').setAttribute('href', chatStatus(state) === 'unknown' ? '#icon-info' : '#icon-chat');
       archiveBadge.setAttribute('aria-label', chatLabel(state));
       archiveBadge.title = state?.checkedAt ? chatLabel(state) + ' · 上次核验 ' + new Date(state.checkedAt).toLocaleString('zh-CN') : chatLabel(state);
-      archiveBadge.hidden = !this.chatState;
+      archiveBadge.hidden = !this.chatState || chatStatus(state) === 'archived';
       node.style.transform = `translate(${item.x}px, ${item.y}px)`;
       node.style.width = `${item.width}px`; node.style.height = `${item.height}px`;
       this.load(record, image, item);

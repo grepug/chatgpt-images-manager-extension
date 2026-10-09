@@ -20,9 +20,9 @@
 .grid-sizes button{padding:0 11px;height:27px;border-radius:6px}.grid-toolbar .icon-button{width:32px;height:32px}
 .chat-filter{height:32px;max-width:130px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--secondary);font:inherit;font-size:12px;padding:0 6px;cursor:pointer}
 .sidebar-chat-filter{margin:0 12px 8px;max-width:calc(100% - 24px)}
-.chat-archive-badge{position:absolute;top:9px;left:9px;z-index:1;max-width:calc(100% - 55px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:3px 6px;border-radius:6px;background:#0009;color:#fffd;font-size:10px;line-height:16px;pointer-events:none;transition:color .15s,background .15s}
-.chat-archive-badge[data-state=archived]{background:#183a2ee8;color:#d5f0e4}.chat-archive-badge[data-state=unknown]{color:#fffa}
-.virtual-thumbnail .chat-archive-badge{top:7px;left:7px;font-size:9px;padding:1px 5px}
+.chat-archive-badge{position:absolute;top:9px;left:9px;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#0009;color:#fffd;transition:color .15s,background .15s}
+.chat-archive-badge[hidden]{display:none}.chat-archive-badge .icon{width:13px;height:13px;pointer-events:none}.chat-archive-badge[data-state=unknown]{color:#fffa}
+.virtual-thumbnail .chat-archive-badge{top:7px;left:7px;width:18px;height:18px}.virtual-thumbnail .chat-archive-badge .icon{width:12px;height:12px}
 .archive-confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 @media(min-width:581px) and (max-width:950px){.grid-toolbar{flex-wrap:wrap}.grid-brand{display:none}.grid-tools{width:100%;justify-content:space-between}.grid-tool-modes{width:228px}}
 @media(max-width:580px){.grid-filters{width:100%;align-items:center}.grid-filters button{padding:0 6px}.chat-filter{margin-left:auto;max-width:116px;font-size:11px}}
