@@ -28,7 +28,11 @@ export function validRule(rule) {
   return Boolean(calendarDate(rule.value, ['year','month'].includes(rule.op) ? rule.op : 'day'));
 }
 export function normalizeQuery(query) {
-  return { mode: query?.mode === 'any' ? 'any' : 'all', rules: (Array.isArray(query?.rules) ? query.rules : []).filter(validRule).map((rule,index) => {
+  const valid = (Array.isArray(query?.rules) ? query.rules : []).filter(validRule);
+  // Direction and ratio are alternative ways to specify image shape. Existing
+  // saved queries use the last valid category, retaining multiple same-category rules.
+  const shape = valid.findLast(rule => ['ratio','direction'].includes(rule.field))?.field;
+  return { mode: query?.mode === 'any' ? 'any' : 'all', rules: valid.filter(rule => !['ratio','direction'].includes(rule.field) || rule.field === shape).map((rule,index) => {
     const result = { id: typeof rule.id === 'string' ? rule.id : 'restored-' + index, field: rule.field };
     if (rule.field === 'ratio') Object.assign(result, { op: rule.op, width: rule.width, height: rule.height });
     else if (rule.field === 'date') { result.op = rule.op; if (rule.op !== 'unknown') result.value = rule.value; if (rule.op === 'range') result.end = rule.end; }

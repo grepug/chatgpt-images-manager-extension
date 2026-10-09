@@ -17,6 +17,7 @@ const state = () => ev('window.gridFilterBridge.state()');
 // The CLI types text into segmented date inputs. Use the native value setter
 // and normal input events for these controls; other fields use real typing.
 function date(label,value) {
+  foreground(); ab('focus','[aria-label="' + label + '"]');
   ev('(()=>{const input=document.querySelector(' + JSON.stringify('[aria-label="' + label + '"]') + ');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(input,' + JSON.stringify(value) + ');input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}));return input.value;})()');
 }
 function query(rules,mode = 'all') { ev('window.gridFilterBridge.setQuery(' + JSON.stringify({mode,rules}) + ');true'); }
@@ -78,6 +79,18 @@ try {
   check(ev("getComputedStyle(document.getElementById('grid-filter-controls')).display!=='none'&&getComputedStyle(document.getElementById('grid-view')).display==='none'"),'Filter entry stays in grid while viewer navigation follows the result');
   ab('mouse','move','600','350'); ab('click','#return-grid');
   check(count() === 4,'Returning from viewer preserves the filter');
+  query([{id:'direction',field:'direction',value:'landscape'},{id:'year',field:'date',op:'year',value:'2026'}]);
+  ab('click','#grid-filter-trigger'); await hover('[data-branch=filter-add]'); await hover('[data-branch=filter-add-ratio]');
+  check(ev("document.querySelector('.filter-replacement').textContent.includes('替换图片方向')") && state().query.rules.some(rule=>rule.field==='direction'),'Ratio editor explains replacement without applying it on hover');
+  ab('fill','[aria-label="比例高"]',''); check(count() === 4,'Incomplete replacement preserves the active direction and result');
+  ab('fill','[aria-label="比例高"]','16'); await until("document.getElementById('grid-all-count').textContent==='3'");
+  check(state().query.rules.some(rule=>rule.field==='ratio') && !state().query.rules.some(rule=>rule.field==='direction') && state().query.rules.some(rule=>rule.field==='date'),'Applying a ratio replaces direction and preserves the date condition');
+  ab('press','Escape'); ab('press','Escape'); ab('press','Escape');
+  ab('click','#grid-filter-trigger'); await hover('[data-branch=filter-add]'); await hover('[data-branch=filter-add-direction]');
+  check(ev("[...document.querySelectorAll('.filter-menu-label')].some(node=>node.textContent.includes('替换比例'))"),'Direction menu explains the inverse replacement');
+  ab('find','role','menuitem','click','--name','竖图','--exact'); await until("document.getElementById('grid-all-count').textContent==='7'");
+  check(state().query.rules.some(rule=>rule.field==='direction') && !state().query.rules.some(rule=>rule.field==='ratio') && state().query.rules.some(rule=>rule.field==='date'),'Applying direction replaces ratios and preserves other conditions');
+  ab('press','Escape'); ab('press','Escape'); ab('press','Escape');
   query([]);
   await ev("(async()=>{const db=await import('/db.js');await db.updateValue('images','preview-account:fixture-1',{width:0,height:0});await db.putValue('assetInfo',{key:'preview-account:fixture-1:thumbnail',id:'fixture-1',account:'preview-account',kind:'thumbnail',sourceWidth:1024,sourceHeight:1792});await db.updateValue('images','preview-account:fixture-2',{createdAt:0});window.dispatchEvent(new Event('preview-library-event'));return true;})()");
   await wait(250); query([{id:'geometry',field:'direction',value:'portrait'}]); await until("(async()=>{const db=await import('/db.js');const row=(await db.getImages('preview-account')).find(x=>x.id==='fixture-1');return row.width>0&&row.height>0;})()");

@@ -7,7 +7,7 @@ import { ThumbnailCache } from './thumbnail-cache.js';
 import { OriginalCache } from './original-cache.js';
 import { GridSelection, runBulk } from './grid-selection.js';
 import { ChatStateQueue, archivePlan, runArchive, chatStatus, chatLabel } from './chat-archive.js';
-import { emptyQuery, normalizeQuery, compileQuery, queryKey, normalizeViews, viewNameError } from './image-filters.js';
+import { emptyQuery, normalizeQuery, compileQuery, queryKey, normalizeViews, viewNameError, validRule } from './image-filters.js';
 
 const extension = globalThis.browser || globalThis.chrome;
 const preview = new URLSearchParams(location.search).get('preview') === '1' && !extension?.runtime?.id;
@@ -809,7 +809,13 @@ async function ensureGeometry() {
 }
 window.gridFilterBridge = {
   state:filterState, setQuery:setImageQuery,
-  putRule(rule) { const rules = imageQuery.rules.some(row => row.id === rule.id) ? imageQuery.rules.map(row => row.id === rule.id ? rule : row) : [...imageQuery.rules,rule]; setImageQuery({ ...imageQuery,rules }); },
+  putRule(rule) {
+    if (!validRule(rule)) return;
+    const opposite = rule.field === 'ratio' ? 'direction' : rule.field === 'direction' ? 'ratio' : null;
+    const existing = imageQuery.rules.filter(row => row.field !== opposite);
+    const rules = existing.some(row => row.id === rule.id) ? existing.map(row => row.id === rule.id ? rule : row) : [...existing,rule];
+    setImageQuery({ ...imageQuery,rules });
+  },
   removeRule(id) { setImageQuery({ ...imageQuery, rules:imageQuery.rules.filter(rule => rule.id !== id) }); },
   openView:openFilterView, saveNew:name => saveNewFilterView(name), duplicateView:name => saveNewFilterView(name,true),
   updateView:() => updateFilterView(), renameView:updateFilterView, restoreView:() => openFilterView(activeViewId), deleteView:deleteFilterView, leaveView:leaveFilterView,

@@ -20,7 +20,7 @@ function useRoot() {
   },[open]);
   return [open,value => { if (value) for (const root of roots) root.close(); setOpen(value); }];
 }
-function RuleEditor({ field, rule, onRule }) {
+function RuleEditor({ field, rule, onRule, replacement }) {
   const id = useRef(rule?.id || crypto.randomUUID());
   const initial = rule || (field === 'date' ? { op:'day', value:'' } : { op:'exact', width:9, height:16 });
   const [draft,setDraft] = useState(initial), [touched,setTouched] = useState(false);
@@ -33,6 +33,7 @@ function RuleEditor({ field, rule, onRule }) {
   const candidate = { ...draft, field, width:Number(draft.width), height:Number(draft.height) };
   return <div className="filter-form" onKeyDown={event => { if (event.key !== 'Escape') event.stopPropagation(); }}>
     <h3>{labels[field]}</h3>
+    {replacement && <p className="filter-hint filter-replacement">应用比例后将替换图片方向条件</p>}
     {field === 'date' ? <>
       <label>条件<select aria-label="日期条件" value={draft.op} onChange={event => changed({ op:event.target.value })}>{Object.entries(DATE_OPERATORS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       {draft.op === 'relative' ? <label>时间范围<select aria-label="相对日期" value={draft.value || ''} onChange={event => changed({ value:event.target.value })}><option value="" disabled>选择时间范围</option>{Object.entries(RELATIVE_DATES).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -51,11 +52,11 @@ function RuleEditor({ field, rule, onRule }) {
     {touched && validRule(candidate) && <p className="filter-hint">已应用</p>}
   </div>;
 }
-function RuleChoices({ field, rule, onRule }) {
+function RuleChoices({ field, rule, onRule, replacement }) {
   const id = useRef(rule?.id || crypto.randomUUID());
-  if (['date','ratio'].includes(field)) return <RuleEditor field={field} rule={rule} onRule={onRule}/>;
+  if (['date','ratio'].includes(field)) return <RuleEditor field={field} rule={rule} onRule={onRule} replacement={replacement}/>;
   const choices = field === 'direction' ? DIRECTIONS : ARCHIVE_STATES;
-  return <>{Object.entries(choices).map(([value,label]) => <Command key={value} label={label} icon={value === 'unknown' ? 'info' : icons[field]} keep onSelect={() => onRule({ id:id.current, field, value })}>{rule?.value === value && <Icon name="check"/>}</Command>)}</>;
+  return <>{replacement && <Menu.Label className="filter-menu-label">选择后将替换比例条件</Menu.Label>}{Object.entries(choices).map(([value,label]) => <Command key={value} label={label} icon={value === 'unknown' ? 'info' : icons[field]} keep onSelect={() => onRule({ id:id.current, field, value })}>{rule?.value === value && <Icon name="check"/>}</Command>)}</>;
 }
 function FilterMenu({ state }) {
   const [open,changeOpen] = useRoot();
@@ -75,7 +76,7 @@ function FilterMenu({ state }) {
         <Command label="删除此条件" icon="minus" keep onSelect={() => bridge().removeRule(rule.id)}/>
       </Branch>)}
       <Branch label="添加条件" icon="plus" id="filter-add" depth={1} rootTrigger="grid-filter-trigger">
-        {Object.keys(labels).map(field => <Branch key={field} label={labels[field]} icon={icons[field]} id={'filter-add-' + field} depth={2} form={['date','ratio'].includes(field)} rootTrigger="grid-filter-trigger"><RuleChoices field={field} onRule={rule => bridge().putRule(rule)}/></Branch>)}
+        {Object.keys(labels).map(field => <Branch key={field} label={labels[field]} icon={icons[field]} id={'filter-add-' + field} depth={2} form={['date','ratio'].includes(field)} rootTrigger="grid-filter-trigger"><RuleChoices field={field} replacement={state.query.rules.some(rule => rule.field === (field === 'ratio' ? 'direction' : field === 'direction' ? 'ratio' : null))} onRule={rule => bridge().putRule(rule)}/></Branch>)}
       </Branch>
       {state.geometry === 'working' && <Menu.Label className="filter-menu-label" role="status">正在补齐本地图片尺寸…</Menu.Label>}
       {state.geometry === 'failed' && <Command label="尺寸补齐失败，点击重试" icon="refresh" keep onSelect={() => bridge().retryGeometry()}/>}

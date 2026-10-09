@@ -93,3 +93,22 @@ test('saved view definitions validate names, scopes and rules without storing im
   assert.equal(queryKey(query),queryKey({...query,rules:[{...query.rules[0],id:'another'}]}));
   assert.deepEqual(normalizeQuery({mode:'bad',rules:[{field:'date',op:'day',value:'partial'}]}),{mode:'all',rules:[]});
 });
+test('direction and ratio are mutually exclusive in both operators and restored Views', () => {
+  const portrait = { id:'portrait',field:'direction',value:'portrait' }, ratio = { id:'ratio',field:'ratio',op:'exact',width:9,height:16 };
+  const archived = { id:'archive',field:'archive',value:'archived' }, year = { id:'year',field:'date',op:'year',value:'2026' };
+  for (const mode of ['all','any']) {
+    assert.deepEqual(normalizeQuery({mode,rules:[year,portrait,archived,ratio]}).rules,[year,archived,ratio]);
+    assert.deepEqual(normalizeQuery({mode,rules:[year,ratio,archived,portrait]}).rules,[year,archived,portrait]);
+    assert.deepEqual(normalizeQuery({mode,rules:[portrait,{...ratio,height:0}]}).rules,[portrait]);
+    const restored = normalizeViews([{id:'old',name:'旧 View',scope:'all',query:{mode,rules:[portrait,ratio]}}]);
+    assert.deepEqual(restored[0].query.rules,[ratio]);
+  }
+});
+test('multiple ratio alternatives remain available without direction rules', () => {
+  const rules = [{id:'direction',field:'direction',value:'landscape'},{id:'a',field:'ratio',op:'exact',width:9,height:16},{id:'b',field:'ratio',op:'exact',width:4,height:3}];
+  assert.deepEqual(normalizeQuery({mode:'any',rules}).rules,rules.slice(1));
+  const matches = compileQuery({mode:'any',rules});
+  assert.equal(matches(image),true);
+  assert.equal(matches({width:1200,height:900}),true);
+  assert.equal(matches({width:1600,height:900}),false);
+});
