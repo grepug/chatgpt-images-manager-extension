@@ -117,7 +117,7 @@ function Dropdown({ zoom=false, grid=false }) {
   useEffect(() => {
     const observer = new MutationObserver(() => rerender(value => value + 1));
     // Read existing command state without replacing the gallery controller.
-    for (const id of grid ? ['grid-select-all','grid-clear-selection','grid-hide-selected','grid-favorite-selected','grid-unfavorite-selected'] : ['more-panel','actual-size'])
+    for (const id of grid ? ['grid-select-all','grid-clear-selection','grid-hide-selected','grid-favorite-selected','grid-unfavorite-selected','grid-archive-selected'] : ['more-panel','actual-size'])
       observer.observe($(id), {subtree:true,attributes:true,childList:true,characterData:true});
     return () => observer.disconnect();
   },[]);
@@ -136,6 +136,8 @@ function Dropdown({ zoom=false, grid=false }) {
         <Action id="grid-hide-selected" icon="hide"/>
         <Action id="grid-favorite-selected" icon="star" shortcut="F"/>
         <Action id="grid-unfavorite-selected" icon="star"/>
+        <Menu.Separator className="component-separator"/>
+        <Action id="grid-archive-selected" icon="archive"/>
       </> : zoom ? <ZoomItems/> : <>
         <Action id="menu-favorite" icon="star" shortcut="F"/>
         <Branch label="缩放" icon="fit" id="zoom" depth={1}><ZoomItems/></Branch>
@@ -144,6 +146,7 @@ function Dropdown({ zoom=false, grid=false }) {
         <Action id="locate-all" label="在全部图片中定位" icon="locate"/>
         <Action id="copy-prompt" label="复制 prompt" icon="copy"/>
         <Action id="conversation" label="打开原聊天" icon="chat"/>
+        <Action id="archive-chat" icon="archive"/>
         <Action id="download" label="下载图片" icon="download"/>
         <Menu.Separator className="component-separator"/>
         <Branch label="图片详情" icon="info" id="details" depth={1} form><Embedded id="details-panel"/></Branch>

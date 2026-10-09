@@ -3,10 +3,18 @@ import { nativeRequest, nativeRead, nativeWrite, nativeThumbnail, nativeVerify, 
 import { cacheProgress } from './cache-policy.js';
 import { fitsThumbnail, THUMBNAIL_VERSION } from './thumbnail-cache.js';
 import { bulkRequest } from './grid-selection.js';
+import { chatIds } from './chat-archive.js';
 
 const native = globalThis.location?.protocol === 'safari-web-extension:';
 export const database = legacy.database;
 export async function getValue(store, key) { return native ? nativeRequest('get', { store, key }) : legacy.getValue(store, key); }
+export async function storeChatStates(account, rows) {
+  if (typeof account !== 'string' || !account || !Array.isArray(rows)) throw new Error('无效的聊天状态');
+  if (!rows.length) return [];
+  chatIds(rows.map(row => row.id));
+  if (rows.some(row => typeof row.archived !== 'boolean' || !Number.isFinite(row.checkedAt) || row.checkedAt <= 0)) throw new Error('无效的聊天状态');
+  return native ? nativeRequest('chat-states', { account, rows }) : legacy.storeChatStates(account, rows);
+}
 export async function putValue(store, value) { return native ? nativeRequest('put', { store, value }) : legacy.putValue(store, value); }
 export async function putValues(store, rows) {
   if (!native) return Promise.all(rows.map(value => legacy.putValue(store, value)));

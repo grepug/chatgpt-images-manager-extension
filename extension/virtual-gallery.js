@@ -1,8 +1,10 @@
 import { masonryLayout, masonryWindow, masonryAnchor, masonryScrollTop } from './masonry.js';
+import { chatStatus, chatLabel } from './chat-archive.js';
 
 export class VirtualGallery {
-  constructor({ host, canvas, sidebar = false, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon, selection, selectImage }) {
+  constructor({ host, canvas, sidebar = false, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon, selection, selectImage, chatState, onVisibleChats }) {
     Object.assign(this, { host, canvas, sidebar, loadImage, openImage, favorite, hideImage, locateImage, onScroll, onVisible, starIcon, actionIcon, selection, selectImage });
+    Object.assign(this, { chatState, onVisibleChats });
     this.visibilityTimers = new Map(); this.notified = new Set();
     this.images = []; this.byId = new Map(); this.nodes = new Map(); this.dimensions = new Map();
     this.prefetches = new Map(); this.exits = new Set(); this.filter = 'all';
@@ -138,6 +140,11 @@ export class VirtualGallery {
     const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.decoding = 'async';
     img.className = this.sidebar ? 'thumbnail-image' : 'grid-image';
     const title = document.createElement('span'); title.className = this.sidebar ? 'thumbnail-title' : 'grid-card-title';
+    const archiveBadge = document.createElement('span'); archiveBadge.className = 'chat-archive-badge';
+    const archiveIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    archiveIcon.setAttribute('class', 'icon'); archiveIcon.setAttribute('aria-hidden', 'true');
+    const archiveGlyph = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    archiveIcon.append(archiveGlyph); archiveBadge.append(archiveIcon); open.append(archiveBadge);
     open.append(img, title); open.addEventListener('click', event => {
       if (this.selection?.active) this.selectImage(image.id, event.shiftKey);
       else this.openImage(image.id);
@@ -160,7 +167,7 @@ export class VirtualGallery {
       locate = document.createElement('button'); locate.className = 'grid-action grid-locate'; locate.append(this.actionIcon('locate'));
       locate.addEventListener('click', () => this.locateImage(image.id)); node.append(locate);
     }
-    const record = { node, open, img, title, star, hide, locate, alive: true, url: null };
+    const record = { node, open, img, title, star, hide, locate, archiveBadge, alive: true, url: null };
     this.nodes.set(image.id, record); this.canvas.append(node);
     return record;
   }
@@ -219,13 +226,20 @@ export class VirtualGallery {
     });
     for (const item of loadingOrder) {
       const image = this.byId.get(item.id), record = this.nodes.get(item.id) || this.create(image);
-      const { node, open, title, star, hide, locate } = record;
+      const { node, open, title, star, hide, locate, archiveBadge } = record;
+      const state = this.chatState?.(image.conversationId);
+      archiveBadge.dataset.state = chatStatus(state);
+      archiveBadge.querySelector('use').setAttribute('href', chatStatus(state) === 'unknown' ? '#icon-info' : '#icon-chat');
+      archiveBadge.setAttribute('aria-label', chatLabel(state));
+      archiveBadge.title = state?.checkedAt ? chatLabel(state) + ' · 上次核验 ' + new Date(state.checkedAt).toLocaleString('zh-CN') : chatLabel(state);
+      archiveBadge.hidden = !this.chatState || chatStatus(state) === 'archived';
       node.style.transform = `translate(${item.x}px, ${item.y}px)`;
       node.style.width = `${item.width}px`; node.style.height = `${item.height}px`;
       this.load(record, image, item);
       node.setAttribute('aria-setsize', this.images.length); node.setAttribute('aria-posinset', item.index + 1);
       open.setAttribute('aria-label', `${image.title}${image.favorite ? '，已收藏' : ''}`);
       open.setAttribute('aria-current', String(image.id === this.selectedId));
+      if (this.chatState) open.setAttribute('aria-label', open.getAttribute('aria-label') + '，' + chatLabel(state));
       node.classList.toggle('selected', image.id === this.selectedId);
       this.updateSelection(record);
       title.textContent = image.deleted ? `${image.title} · 来源已删除` : image.title;
@@ -255,6 +269,8 @@ export class VirtualGallery {
     }
     const screenReady = visible.filter(item => item.y + item.height >= top && item.y <= bottom)
       .every(item => { const record = this.nodes.get(item.id); return record.url && (!record.pending || record.pending.resource); });
+    this.onVisibleChats?.(visible.filter(item => item.y + item.height > top && item.y < bottom)
+      .map(item => this.byId.get(item.id).conversationId).filter(Boolean));
     if (!this.sidebar && this.onVisible) {
       const screen = new Set(visible.filter(item => item.y + item.height > top && item.y < bottom).map(item => item.id));
       for (const [id, timer] of this.visibilityTimers) if (!screen.has(id)) { clearTimeout(timer); this.visibilityTimers.delete(id); }

@@ -1,4 +1,4 @@
-import { getImages, getValue, putValue, getAsset, getThumbnailAsset, storeAsset, getHiddenIds } from './db.js';
+import { getImages, getValue, putValue, getAsset, getThumbnailAsset, storeAsset, getHiddenIds, allValues } from './db.js';
 import { visibleImages, adjacentImages, moveSelection, fitScale, zoomAt, clampTransform, formatBytes } from './core.js';
 import { GRID_SIZES } from './masonry.js';
 import { VirtualGallery } from './virtual-gallery.js';
@@ -6,6 +6,7 @@ import { cacheDisplay } from './cache-display.js';
 import { ThumbnailCache } from './thumbnail-cache.js';
 import { OriginalCache } from './original-cache.js';
 import { GridSelection, runBulk } from './grid-selection.js';
+import { ChatStateQueue, archivePlan, runArchive, chatStatus, chatLabel } from './chat-archive.js';
 
 const extension = globalThis.browser || globalThis.chrome;
 const preview = new URLSearchParams(location.search).get('preview') === '1' && !extension?.runtime?.id;
@@ -32,6 +33,34 @@ let demandFrame = 0, demandAccount = null;
 const demandIds = new Set();
 const gridSelection = new GridSelection();
 let bulkJob = null, bulkAnimationUntil = 0;
+let chatFilter = 'any', chatVersion = 0, listChatVersion = -1, archiveConfirmation = null, singleArchive = false;
+const chatQueue = new ChatStateQueue({
+  active: () => Boolean(account && online && !document.hidden && !bulkJob),
+  read: ids => rpc('chat-status', { account, ids }),
+  changed: () => chatStatesChanged(),
+});
+function chatStatesChanged() {
+  const previous = list();
+  images = images.map(image => image.deleted && chatQueue.states.get(image.conversationId)?.archived === true ? { ...image, deleted: false } : image);
+  chatVersion++;
+  if (chatFilter !== 'any' && !bulkJob) { renderList(true, true); reconcileHiddenSelection(previous); }
+  else { gallery.schedule(); sidebarGallery.schedule(); updateControls(); updateGridSelection(); }
+}
+function chatScope() { return filter + ':' + chatFilter; }
+function displayChatState(id) {
+  const state = chatQueue.states.get(id);
+  return !online && typeof state?.archived === 'boolean' ? { ...state, error: undefined } : state;
+}
+function scopedImages(scope = filter) {
+  const retained = images.map(image => image.deleted && chatQueue.states.get(image.conversationId)?.archived === true ? { ...image, deleted: false } : image);
+  const base = visibleImages(retained, scope, hiddenIds);
+  return chatFilter === 'any' ? base : base.filter(image => chatStatus(displayChatState(image.conversationId)) === chatFilter);
+}
+function visibleChats(ids) { chatQueue.enqueue(ids, 0); }
+function refreshChatStates() {
+  chatQueue.enqueue(images.map(image => image.conversationId), 10);
+  if (current()?.conversationId) chatQueue.enqueue([current().conversationId], -1);
+}
 function demandVisible(id) {
   if (demandAccount !== account) { demandIds.clear(); demandAccount = account; }
   demandIds.add(id);
@@ -57,9 +86,11 @@ const originalCache = new OriginalCache({ read: (targetAccount, id, options) => 
 const gallery = new VirtualGallery({ host: $('grid-scroll'), canvas: $('grid-canvas'), loadImage: thumbnailURL,
   openImage: openViewer, favorite: toggleFavorite, hideImage: toggleHidden, locateImage: locateAll,
   onVisible: demandVisible,
+  chatState: displayChatState, onVisibleChats: visibleChats,
   selection: gridSelection, selectImage: (id, range) => { gridSelection.toggle(id, range); updateGridSelection(); },
   onScroll: saveView, starIcon: () => icon('star'), actionIcon: icon });
 const sidebarGallery = new VirtualGallery({ host: thumbnails, canvas: $('thumbnail-canvas'), sidebar: true,
+  chatState: displayChatState, onVisibleChats: visibleChats,
   loadImage: thumbnailURL, openImage: select, onScroll: saveView, starIcon: () => icon('star') });
 
 async function rpc(type, args = {}) {
@@ -110,15 +141,16 @@ function requestViewerLayout() { window.viewerMenus?.layout(); }
 
 function displayDate(time) { return time ? new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(time) : ''; }
 function list() {
-  if (listImages !== images || listFilter !== filter || listHidden !== hiddenIds) {
-    listImages = images; listFilter = filter; listHidden = hiddenIds; visibleList = visibleImages(images, filter, hiddenIds);
+  if (listImages !== images || listFilter !== chatScope() || listHidden !== hiddenIds || listChatVersion !== chatVersion) {
+    listImages = images; listFilter = chatScope(); listHidden = hiddenIds; listChatVersion = chatVersion; visibleList = scopedImages();
     imageById = new Map(images.map(image => [image.id, image]));
   }
   return visibleList;
 }
 function current() {
   list(); const image = imageById.get(selectedId) || selectedImage;
-  return image && hiddenIds.has(image.id) === (filter === 'hidden') ? image : null;
+  return image && hiddenIds.has(image.id) === (filter === 'hidden')
+    && (chatFilter === 'any' || chatStatus(displayChatState(image.conversationId)) === chatFilter) ? image : null;
 }
 function icon(name, className = 'icon') {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -154,9 +186,9 @@ function renderList(preserve = true, animate = false) {
   $('grid-empty').hidden = Boolean(visible.length); $('grid-empty-text').textContent = emptyText;
   $('sidebar-empty').hidden = Boolean(visible.length); $('sidebar-empty').textContent = emptyText;
   for (const prefix of ['', 'grid-']) {
-    $(`${prefix}all-count`).textContent = visibleImages(images, 'all', hiddenIds).length;
-    $(`${prefix}favorite-count`).textContent = images.filter(image => image.favorite && !hiddenIds.has(image.id)).length;
-    $(`${prefix}hidden-count`).textContent = visibleImages(images, 'hidden', hiddenIds).length;
+    $(`${prefix}all-count`).textContent = scopedImages('all').length;
+    $(`${prefix}favorite-count`).textContent = scopedImages('favorites').length;
+    $(`${prefix}hidden-count`).textContent = scopedImages('hidden').length;
     for (const value of ['all', 'favorites', 'hidden']) {
       $(`${prefix}filter-${value}`).classList.toggle('active', filter === value);
       $(`${prefix}filter-${value}`).setAttribute('aria-pressed', String(filter === value));
@@ -173,6 +205,9 @@ function updateGridSelection() {
   $('grid-select').disabled = !account || !list().length;
   $('grid-selection-count').textContent = busy ? `${bulkJob.verb} ${bulkJob.done} / ${bulkJob.total}` : `已选 ${count} 张`;
   const chosen = list().filter(image => gridSelection.ids.has(image.id));
+  const plan = archivePlan(chosen);
+  $('grid-archive-selected').disabled = busy || !online || !plan.conversations.size || singleArchive;
+  $('grid-archive-selected').title = '归档所在聊天 · ' + plan.conversations.size + ' 个聊天';
   $('grid-select-all').disabled = busy || !list().length || count === list().length;
   $('grid-clear-selection').disabled = busy || !count;
   $('grid-hide-selected').disabled = busy || !count;
@@ -189,7 +224,57 @@ function updateGridSelection() {
   $('grid-selection-stop').textContent = bulkJob?.stopped ? '停止中' : '停止';
   $('grid-open-viewer').disabled = active || !list().length;
   for (const prefix of ['', 'grid-']) for (const scope of ['all','favorites','hidden']) $(`${prefix}filter-${scope}`).disabled = busy;
+  $('chat-filter').disabled = $('grid-chat-filter').disabled = busy;
   gallery.selectionChanged();
+}
+function confirmArchive() {
+  if (bulkJob || !gridSelection.active || !gridSelection.ids.size || !online) return;
+  const chosen = list().filter(image => gridSelection.ids.has(image.id));
+  const plan = archivePlan(chosen);
+  if (!plan.conversations.size) return;
+  archiveConfirmation = { account, ids: chosen.map(image => image.id), plan };
+  $('archive-summary').textContent = '已选 ' + chosen.length + ' 张图片，涉及 ' + plan.conversations.size + ' 个聊天。'
+    + (plan.missing.length ? '另有 ' + plan.missing.length + ' 张缺少聊天信息，将保持选中。' : '');
+  window.viewerMenus?.close(); $('archive-confirm').showModal();
+}
+async function bulkArchive(confirmation) {
+  if (!confirmation || confirmation.account !== account || bulkJob) return;
+  const targetAccount = account, { plan } = confirmation;
+  const job = { account, verb: '归档聊天', total: plan.conversations.size, done: 0, stopped: false };
+  bulkJob = job; gridSelection.locked = true; reloadSequence++; updateGridSelection();
+  const result = await runArchive({ ids: [...plan.conversations.keys()],
+    stopped: () => job.stopped || bulkJob !== job || account !== targetAccount,
+    apply: async id => {
+      const response = await rpc('archive-chat', { account: targetAccount, id });
+      if (account === targetAccount && bulkJob === job) chatQueue.set([response.state]);
+      return response;
+    }, progress: result => {
+      job.done = result.succeeded.length + result.skipped.length + result.failed.length;
+      if (account === targetAccount && bulkJob === job) updateGridSelection();
+    } });
+  if (account !== targetAccount || bulkJob !== job) return;
+  const completed = new Set([...result.succeeded, ...result.skipped]);
+  gridSelection.complete([...completed].flatMap(id => plan.conversations.get(id)));
+  gridSelection.locked = false; bulkJob = null; chatVersion++; bulkAnimationUntil = performance.now() + 240;
+  renderList(true, true); saveView();
+  const parts = ['已归档 ' + result.succeeded.length + ' 个聊天', '跳过已归档 ' + result.skipped.length + ' 个'];
+  if (result.failed.length) parts.push(result.failed.length + ' 个失败，仍选中可重试');
+  if (result.pending.length) parts.push(result.pending.length + ' 个未处理');
+  if (plan.missing.length) parts.push(plan.missing.length + ' 张缺少聊天信息');
+  if (result.error) parts.push(result.error);
+  status(parts.join(' · ')); chatQueue.kick(); queueReload();
+}
+async function archiveCurrentChat() {
+  const id = current()?.conversationId, targetAccount = account;
+  if (!id || !online || singleArchive || bulkJob) return;
+  singleArchive = true; updateControls(); updateGridSelection();
+  try {
+    const result = await rpc('archive-chat', { account: targetAccount, id });
+    if (account !== targetAccount) return;
+    chatQueue.set([result.state]); chatStatesChanged();
+    status(result.skipped ? '所在聊天已归档' : '已归档所在聊天 · 同聊天的所有图片已同步');
+  } catch (error) { if (account === targetAccount) status(error.message); }
+  finally { if (account === targetAccount) { singleArchive = false; updateControls(); updateGridSelection(); } }
 }
 
 async function bulkFlags(kind, value) {
@@ -249,6 +334,9 @@ function returnToGrid() {
 }
 function updateControls() {
   const image = current(), visible = list(), index = visible.findIndex(value => value.id === selectedId);
+  const archived = chatStatus(chatQueue.states.get(image?.conversationId)) === 'archived';
+  $('archive-chat').disabled = !image?.conversationId || !online || singleArchive || Boolean(bulkJob) || archived;
+  $('archive-chat').querySelector('span').textContent = singleArchive ? '归档中…' : archived ? '所在聊天已归档' : '归档所在聊天';
   $('grid-open-viewer').disabled = gridSelection.active || !visible.length;
   $('previous').disabled = !image || !visible.length || index === 0;
   $('next').disabled = !image || !visible.length || index === visible.length - 1;
@@ -280,6 +368,7 @@ function updateControls() {
     $('image-meta').textContent = [displayDate(image.createdAt), width && `${width} × ${height}`, image.deleted && '来源已删除'].filter(Boolean).join(' · ');
   }
   $('floating-title').textContent = image?.title || '';
+  if (image) $('image-meta').textContent += ' · ' + chatLabel(displayChatState(image.conversationId));
   $('floating-meta').textContent = image ? $('image-meta').textContent : '';
   document.querySelector('.preview-title').hidden = !image;
 }
@@ -309,6 +398,7 @@ function viewportPoint(event) {
 async function select(id, restoredTransform = null) {
   list(); const image = imageById.get(id);
   if (!image || hiddenIds.has(id) !== (filter === 'hidden')) return;
+  if (image.conversationId) chatQueue.enqueue([image.conversationId], -1);
   if (id !== selectedId && viewerPanel === 'edit') closeViewerPanel(false);
   const sequence = ++loadSequence, targetAccount = account;
   selectedId = id; selectedImage = { ...image }; width = 0; height = 0;
@@ -474,8 +564,8 @@ async function updateStorage() {
 }
 function snapshotView() {
   const sidebar = sidebarGallery.state();
-  filterStates = { ...filterStates, [filter]: { grid: gallery.state(), sidebar } };
-  return { key: account, selectedId, filter, scrollTop: sidebar.scrollTop, sidebarAnchor: sidebar.anchor,
+  filterStates = { ...filterStates, [chatScope()]: { grid: gallery.state(), sidebar } };
+  return { key: account, selectedId, filter, chatFilter, scrollTop: sidebar.scrollTop, sidebarAnchor: sidebar.anchor,
     transform: { ...transform }, viewMode, sidebarHidden, layout, gridSize, gridState: gallery.state(), filterStates };
 }
 function saveView(immediate = false) {
@@ -492,7 +582,7 @@ async function reloadImages() {
   if (!targetAccount) return;
   const [records, hidden] = await Promise.all([getImages(targetAccount), getHiddenIds(targetAccount)]);
   if (sequence !== reloadSequence || targetAccount !== account) return;
-  const previous = list(); images = records; hiddenIds = hidden;
+  const previous = list(); images = records; hiddenIds = hidden; refreshChatStates();
   if (images.some(image => image.id === selectedId)) selectedImage = { ...images.find(image => image.id === selectedId) };
   renderList();
   reconcileHiddenSelection(previous);
@@ -502,6 +592,7 @@ async function reloadImages() {
 async function restoreAccount(identity) {
   if (bulkJob) bulkJob.stopped = true;
   bulkJob = null; gridSelection.locked = false; gridSelection.exit();
+  singleArchive = false; archiveConfirmation = null; $('archive-confirm').close(); chatQueue.reset(); chatVersion++;
   loadSequence++; reloadSequence++; clearTimeout(saveTimer); restoring = true;
   if (account) await putValue('views', snapshotView());
   account = identity.id; images = []; hiddenIds = new Set(); filterStates = {}; promptCache.clear(); editDrafts.clear();
@@ -509,28 +600,45 @@ async function restoreAccount(identity) {
   selectedId = null; selectedImage = null; width = 0; height = 0;
   clearImageURLs(); mainImage.hidden = true; $('image-error').hidden = true; $('image-loading').hidden = true;
   viewport.classList.remove('has-image'); $('empty-state').hidden = false;
+  let restoredView;
   if (account) {
     images = await getImages(account);
     hiddenIds = await getHiddenIds(account);
     const saved = await getValue('views', account);
+    restoredView = saved;
+    chatFilter = ['any','archived','unarchived','unknown'].includes(saved?.chatFilter) ? saved.chatFilter : 'any';
+    $('chat-filter').value = $('grid-chat-filter').value = chatFilter;
     viewMode = saved?.viewMode === 'custom' ? 'custom' : 'fit';
     transform = saved?.transform || { scale: 1, x: 0, y: 0 };
     sidebarHidden = typeof saved?.sidebarHidden === 'boolean' ? saved.sidebarHidden : true;
     filter = ['all', 'favorites', 'hidden'].includes(saved?.filter) ? saved.filter : 'all';
-    filterStates = saved?.filterStates || { [filter]: { grid: saved?.gridState || {}, sidebar: { scrollTop: saved?.scrollTop, anchor: saved?.sidebarAnchor } } };
+    filterStates = saved?.filterStates || { [chatScope()]: { grid: saved?.gridState || {}, sidebar: { scrollTop: saved?.scrollTop, anchor: saved?.sidebarAnchor } } };
     gridSize = Object.hasOwn(GRID_SIZES, saved?.gridSize) ? saved.gridSize : 'medium';
+    for (const scope of ['all','favorites','hidden']) {
+      if (!filterStates[scope + ':any'] && filterStates[scope]) filterStates[scope + ':any'] = filterStates[scope];
+    }
     updateGridSize();
     renderList(false);
     const restoredId = list().some(image => image.id === saved?.selectedId) ? saved.selectedId : list()[0]?.id;
     selectedId = restoredId || null; selectedImage = imageById.get(selectedId) || null;
     changeLayout(saved?.layout === 'viewer' ? 'viewer' : 'grid'); updateSidebar();
-    gallery.restore(filterStates[filter]?.grid || {});
-    sidebarGallery.restore(filterStates[filter]?.sidebar || {});
+    gallery.restore(filterStates[chatScope()]?.grid || {});
+    sidebarGallery.restore(filterStates[chatScope()]?.sidebar || {});
     if (restoredId && layout === 'viewer') await select(restoredId, saved?.selectedId === restoredId ? saved.transform : null);
     else rpc('view-hold', { account, id: null }).catch(() => {});
     await updateStorage();
   } else { filter = 'all'; renderList(false); changeLayout('grid'); }
   restoring = false;
+  const targetAccount = account;
+  if (targetAccount) allValues('conversations').then(rows => {
+    if (account !== targetAccount) return;
+    chatQueue.set(rows.filter(row => row.account === targetAccount)); chatStatesChanged(); refreshChatStates();
+    if (!selectedId && layout === 'viewer') {
+      const restored = list().find(image => image.id === restoredView?.selectedId) || list()[0];
+      if (restored) select(restored.id, restored.id === restoredView?.selectedId ? restoredView.transform : null);
+    }
+  }).catch(() => {});
+  refreshChatStates();
 }
 function updateEmptyState() {
   $('grid-connect').hidden = online || Boolean(list().length);
@@ -553,6 +661,7 @@ async function refresh() {
     $('account-avatar').textContent = (identity.name || 'C').slice(0, 1).toUpperCase();
     $('connection-status').textContent = online ? '自动刷新已开启' : '离线 · 本地图片仍可查看';
     $('connection-dot').classList.toggle('online', online);
+    updateControls(); updateGridSelection(); refreshChatStates();
     updateEmptyState();
     if (!online || !account) { status(identity.error); return; }
     status('');
@@ -563,13 +672,33 @@ async function refresh() {
   } catch (error) { status(error.message); }
   finally { syncing = false; $('refresh').classList.remove('busy'); $('grid-refresh').classList.remove('busy'); updateEmptyState(); }
 }
+function changeChatFilter(value) {
+  if (bulkJob || chatFilter === value) return;
+  gridSelection.exit(); window.viewerMenus?.close();
+  const previous = list();
+  filterStates[chatScope()] = { grid: gallery.state(), sidebar: sidebarGallery.state() };
+  chatFilter = value; chatVersion++;
+  $('chat-filter').value = $('grid-chat-filter').value = value;
+  renderList(false);
+  gallery.restore(filterStates[chatScope()]?.grid || {}); sidebarGallery.restore(filterStates[chatScope()]?.sidebar || {});
+  reconcileHiddenSelection(previous);
+  saveView(); refreshChatStates();
+}
+$('chat-filter').addEventListener('change', event => changeChatFilter(event.target.value));
+$('grid-chat-filter').addEventListener('change', event => changeChatFilter(event.target.value));
+$('grid-archive-selected').addEventListener('click', confirmArchive);
+$('archive-chat').addEventListener('click', archiveCurrentChat);
+for (const id of ['archive-dismiss','archive-cancel']) $(id).addEventListener('click', () => { archiveConfirmation = null; $('archive-confirm').close(); });
+$('archive-execute').addEventListener('click', () => {
+  const confirmation = archiveConfirmation; archiveConfirmation = null; $('archive-confirm').close(); bulkArchive(confirmation);
+});
 function changeFilter(value) {
   if (bulkJob || filter === value) return;
   gridSelection.exit(); window.viewerMenus?.close();
   const previous = list();
-  filterStates = { ...filterStates, [filter]: { grid: gallery.state(), sidebar: sidebarGallery.state() } };
+  filterStates = { ...filterStates, [chatScope()]: { grid: gallery.state(), sidebar: sidebarGallery.state() } };
   filter = value; renderList(false);
-  gallery.restore(filterStates[filter]?.grid || {}); sidebarGallery.restore(filterStates[filter]?.sidebar || {});
+  gallery.restore(filterStates[chatScope()]?.grid || {}); sidebarGallery.restore(filterStates[chatScope()]?.sidebar || {});
   reconcileHiddenSelection(previous);
   saveView();
 }
@@ -788,6 +917,8 @@ if (extension?.runtime?.onMessage) extension.runtime.onMessage.addListener(messa
       thumbnailCache.invalidatePreview(account, message.id);
     }
     gallery.refreshPreview(message.id); sidebarGallery.refreshPreview(message.id);
+  } else if (message.event === 'chat-states') {
+    chatQueue.set(message.rows || []); chatStatesChanged();
   } else if (message.event === 'hidden-updated') {
     if (!hiddenPending.has(`${account}:${message.id}`)) queueReload();
   } else if (message.event === 'updated') {

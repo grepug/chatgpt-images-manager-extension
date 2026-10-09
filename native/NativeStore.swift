@@ -23,7 +23,7 @@ final class NativeStore {
     let cacheRoot: URL
     private var db: OpaquePointer?
     private let fm = FileManager.default
-    private let tables = Set(["accounts", "images", "views", "jobs", "hidden", "assetInfo", "settings", "migration", "demands"])
+    private let tables = Set(["accounts", "images", "views", "jobs", "hidden", "assetInfo", "settings", "migration", "demands", "conversations"])
     static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     static func hash(_ text: String) -> String { hash(Data(text.utf8)) }
     convenience init(group: String, profile: String, probe: Bool = false) throws {
@@ -143,6 +143,31 @@ final class NativeStore {
             let app = (try? Data(contentsOf:proof.appendingPathComponent("app.json"))).flatMap { try? JSONSerialization.jsonObject(with:$0) as? [String:Any] }
             return ["schema": 1, "persistent": true, "appProof":app ?? [:]]
         case "get": if let value = try get(store,key) { return value }; return NSNull()
+        case "chat-states":
+            guard let account = request["account"] as? String, !account.isEmpty,
+                let rows = request["rows"] as? [[String:Any]], !rows.isEmpty, rows.count <= 10,
+                rows.allSatisfy({ row in
+                    guard let id = row["id"] as? String, id.range(of:"^[\\w-]{1,128}$",options:.regularExpression) != nil,
+                        row["archived"] is Bool, let checked = row["checkedAt"] as? Double, checked.isFinite, checked > 0 else { return false }
+                    return true
+                }) else { throw StoreFailure.invalid }
+            return try transaction { () -> [[String:Any]] in
+                var saved = [[String:Any]](), archived = Set<String>()
+                for row in rows {
+                    let id = row["id"] as! String, key = account + ":" + id, previous = try get("conversations",key)
+                    var value = row
+                    if (previous?["checkedAt"] as? Double ?? 0) > (row["checkedAt"] as! Double) { value = previous! }
+                    value["account"] = account; value["key"] = key
+                    try put("conversations",value); saved.append(value)
+                    if value["archived"] as? Bool == true { archived.insert(id) }
+                }
+                if !archived.isEmpty {
+                    for var image in try all("images") where image["account"] as? String == account && image["deleted"] as? Bool == true {
+                        if archived.contains(image["conversationId"] as? String ?? "") { image["deleted"] = false; try put("images",image) }
+                    }
+                }
+                return saved
+            }
         case "summary":
             guard let account = request["account"] as? String else { throw StoreFailure.invalid }
             let images = try all("images").filter { $0["account"] as? String == account }
@@ -258,7 +283,11 @@ final class NativeStore {
                 }
                 if request["complete"] as? Bool == true {
                     for var image in try all("images") where image["account"] as? String == account {
-                        if let id = image["id"] as? String, !seen.contains(id) { image["deleted"] = true; try put("images",image) }
+                        if let id = image["id"] as? String, !seen.contains(id) {
+                            let chat = image["conversationId"] as? String ?? ""
+                            image["deleted"] = try get("conversations", "\(account):\(chat)")?["archived"] as? Bool != true
+                            try put("images",image)
+                        }
                     }
                 }
                 return []
@@ -269,7 +298,11 @@ final class NativeStore {
             try transaction {
                 for var image in try all("images") where image["account"] as? String == account {
                     guard let id = image["id"] as? String else { throw StoreFailure.invalid }
-                    if !seen.contains(id) { image["deleted"] = true; try put("images",image) }
+                    if !seen.contains(id) {
+                        let chat = image["conversationId"] as? String ?? ""
+                        image["deleted"] = try get("conversations", "\(account):\(chat)")?["archived"] as? Bool != true
+                        try put("images",image)
+                    }
                 }
             }; return true
         case "asset-info": if let value = try get("assetInfo",key) { return value }; return NSNull()

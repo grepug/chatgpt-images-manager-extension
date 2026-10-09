@@ -4,11 +4,25 @@ import { CacheRunner } from './cache-runner.js';
 import { THUMBNAIL_VERSION } from './thumbnail-cache.js';
 import { openEditWindow } from './edit-window.js';
 import { installNativeBroker } from './native-storage.js';
+import { chatIds } from './chat-archive.js';
+import { storeChatStates } from './db.js';
 const extension = globalThis.browser || globalThis.chrome;
 installNativeBroker();
 let source = null, creatingSource = null, worker = null;
 const assetTasks = new Map();
 const editJobs = new Map();
+const archiveTasks = new Map();
+let chatWrites = Promise.resolve();
+function saveChatStates(account, rows) {
+  const task = chatWrites.then(() => persistChatStates(account, rows));
+  chatWrites = task.catch(() => {});
+  return task;
+}
+async function persistChatStates(account, rows) {
+  const saved = await storeChatStates(account, rows);
+  await broadcast({ event: 'chat-states', account, rows: saved });
+  return saved;
+}
 const ALARM = 'automatic-image-cache';
 
 function assertLibrarySender(sender) {
@@ -205,6 +219,23 @@ async function handle(message, sender) {
     return { complete: false, loaded: images.length };
   }
   if (message.type === 'asset') return asset(message.account, message.id, message.kind === 'thumbnail' ? 'thumbnail' : 'original');
+  if (message.type === 'chat-status') {
+    const ids = chatIds(message.ids);
+    return saveChatStates(message.account, await sourceRequest(message.account, 'chat-status', { ids }));
+  }
+  if (message.type === 'archive-chat') {
+    chatIds([message.id]);
+    const key = message.account + ':' + message.id;
+    if (archiveTasks.has(key)) return archiveTasks.get(key);
+    const task = (async () => {
+      const result = await sourceRequest(message.account, 'archive-chat', { id: message.id });
+      if (result.state?.archived !== true) throw Object.assign(new Error('未能确认聊天已归档。'), { code: 'UNCERTAIN' });
+      try { [result.state] = await saveChatStates(message.account, [result.state]); }
+      catch { throw Object.assign(new Error('聊天归档结果尚未保存；重试前会重新核验。'), { code: 'UNCERTAIN' }); }
+      return result;
+    })().finally(() => archiveTasks.delete(key));
+    archiveTasks.set(key, task); return task;
+  }
   if (message.type === 'hidden') {
     const result = await setHidden(message.account, message.id, message.hidden === true);
     await broadcast({ event: 'hidden-updated', account: message.account, id: message.id });

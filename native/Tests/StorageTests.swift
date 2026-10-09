@@ -38,6 +38,32 @@ final class StorageTests: XCTestCase {
         }
         XCTAssertNil(try s.get("hidden","account"))
     }
+    func testArchivedConversationSurvivesReconcileWithoutChangingOriginals() throws {
+        let s = try store("archive")
+        try s.put("images", ["key":"account:a","account":"account","id":"a","conversationId":"c"])
+        try s.put("images", ["key":"other:a","account":"other","id":"a","conversationId":"c"])
+        try s.put("conversations", ["key":"account:c","account":"account","id":"c","archived":true,"checkedAt":1])
+        _ = try write(s,id:"a")
+        for account in ["account","other"] { _ = try s.handle(["op":"reconcile","account":account,"ids":[]]) }
+        XCTAssertEqual(try s.get("images","account:a")?["deleted"] as? Bool,false)
+        XCTAssertEqual(try s.get("images","other:a")?["deleted"] as? Bool,true)
+        XCTAssertEqual((try s.handle(["op":"verify-assets"]) as! [String:Int])["verified"],1)
+        let reopened = try store("archive")
+        XCTAssertEqual(try reopened.get("conversations","account:c")?["archived"] as? Bool,true)
+        try reopened.put("conversations", ["key":"account:c","account":"account","id":"c","archived":false,"checkedAt":2])
+        _ = try reopened.handle(["op":"reconcile","account":"account","ids":[]])
+        XCTAssertEqual(try reopened.get("images","account:a")?["deleted"] as? Bool,true)
+    }
+    func testChatStateWriteRestoresMissingIndexAndRejectsStaleRead() throws {
+        let s = try store("chat-state")
+        try s.put("images", ["key":"account:a","account":"account","id":"a","conversationId":"c","deleted":true])
+        let rows: [[String:Any]] = [["id":"c","archived":true,"checkedAt":200.0]]
+        _ = try s.handle(["op":"chat-states","account":"account","rows":rows])
+        XCTAssertEqual(try s.get("images","account:a")?["deleted"] as? Bool,false)
+        let stale = try s.handle(["op":"chat-states","account":"account","rows":[["id":"c","archived":false,"checkedAt":100.0]]]) as! [[String:Any]]
+        XCTAssertEqual(stale[0]["archived"] as? Bool,true)
+        XCTAssertThrowsError(try s.handle(["op":"chat-states","account":"account","rows":[["id":"bad/path","archived":true,"checkedAt":300.0]]]))
+    }
     func write(_ store: NativeStore, id: String = "picture", bytes: Data = Data("synthetic original".utf8)) throws -> [String:Any] {
         let token = (try store.handle(["op":"asset-begin","size":bytes.count]) as! [String:Any])["token"] as! String
         _ = try store.handle(["op":"asset-chunk","token":token,"offset":0,"data":bytes.base64EncodedString()])
